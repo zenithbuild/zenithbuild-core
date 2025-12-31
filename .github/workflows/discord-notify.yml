@@ -55,9 +55,17 @@ jobs:
                 exit 0
               fi
               ;;
-            edited|assigned|unassigned|labeled|unlabeled)
-              # For updates, only send if issue was already notified (initial notification sent)
-              # This prevents notifying about edits to issues that haven't been sent yet
+            edited)
+              # For edits: if not notified yet, treat as initial notification (for backfilling)
+              # If already notified, send update notification
+              if [ -z "$HAS_LABEL" ]; then
+                echo "ℹ️  Issue #$ISSUE_NUMBER hasn't been initially notified yet, treating edit as initial notification..."
+                # Change action to "opened" for initial notification formatting
+                ACTION="opened"
+              fi
+              ;;
+            assigned|unassigned|labeled|unlabeled)
+              # For other updates, only send if issue was already notified (initial notification sent)
               if [ -z "$HAS_LABEL" ]; then
                 echo "⏭️  Issue #$ISSUE_NUMBER hasn't been initially notified yet, skipping update notification..."
                 exit 0
@@ -180,9 +188,9 @@ jobs:
           if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
             echo "✅ Successfully sent notification to Discord"
             
-            # Mark issue as notified by adding label (only for "opened" events)
+            # Mark issue as notified by adding label (for "opened" events or initial "edited" notifications)
             # This prevents duplicate initial notifications
-            if [ "$ACTION" = "opened" ]; then
+            if [ "$ACTION" = "opened" ] || [ -z "$HAS_LABEL" ]; then
               # Check if label exists, create if not
               LABEL_EXISTS=$(gh label list --repo "$REPO" --json name --jq ".[] | select(.name == \"$TRACKING_LABEL\") | .name" 2>/dev/null || echo "")
               
