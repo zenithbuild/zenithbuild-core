@@ -1,13 +1,8 @@
-name: Discord Version Update Notifications
+name: Discord Release Notifications
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'package.json'
-      - 'version.txt'
-      - 'VERSION'
+  release:
+    types: [published, edited, prereleased, released]
 
 # Security: Limit permissions to only what's needed
 permissions:
@@ -17,12 +12,7 @@ jobs:
   notify:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 2  # Need previous commit to compare versions
-      
-      - name: Send Version Update to Discord
+      - name: Send Release Notification to Discord
         env:
           DISCORD_VERSION_WEBHOOK_URL: ${{ secrets.DISCORD_VERSION_WEBHOOK_URL }}
         run: |
@@ -44,88 +34,81 @@ jobs:
             exit 1
           fi
           
-          # Check for version in package.json
-          if [ -f "package.json" ]; then
-            CURRENT_VERSION=$(node -p "require('./package.json').version || 'unknown'")
-            PREVIOUS_VERSION=$(git show HEAD~1:package.json 2>/dev/null | node -p "JSON.parse(require('fs').readFileSync('/dev/stdin', 'utf8')).version || 'unknown'" 2>/dev/null || echo "unknown")
-          elif [ -f "version.txt" ]; then
-            CURRENT_VERSION=$(cat version.txt | tr -d ' \n')
-            PREVIOUS_VERSION=$(git show HEAD~1:version.txt 2>/dev/null | tr -d ' \n' || echo "unknown")
-          elif [ -f "VERSION" ]; then
-            CURRENT_VERSION=$(cat VERSION | tr -d ' \n')
-            PREVIOUS_VERSION=$(git show HEAD~1:VERSION 2>/dev/null | tr -d ' \n' || echo "unknown")
-          else
-            echo "⏭️  No version file found, skipping..."
-            exit 0
-          fi
-          
-          # Check if version actually changed
-          if [ "$CURRENT_VERSION" = "$PREVIOUS_VERSION" ] || [ "$PREVIOUS_VERSION" = "unknown" ]; then
-            echo "ℹ️  Version unchanged or first commit, skipping notification..."
-            exit 0
-          fi
+          # Get release information
+          RELEASE_TAG="${{ github.event.release.tag_name }}"
+          RELEASE_NAME="${{ github.event.release.name }}"
+          RELEASE_BODY="${{ github.event.release.body }}"
+          RELEASE_URL="${{ github.event.release.html_url }}"
+          RELEASE_AUTHOR="${{ github.event.release.author.login }}"
+          RELEASE_PRERELEASE="${{ github.event.release.prerelease }}"
+          RELEASE_ACTION="${{ github.event.action }}"
           
           REPO="${{ github.repository }}"
-          COMMIT_SHA="${{ github.sha }}"
-          COMMIT_URL="https://github.com/$REPO/commit/$COMMIT_SHA"
-          COMMIT_MESSAGE="${{ github.event.head_commit.message }}"
-          COMMIT_AUTHOR="${{ github.event.head_commit.author.name }}"
           
-          # Determine version change type (simple semver parsing)
-          VERSION_TYPE=$(node <<VERSION_SCRIPT
-          const current = '$CURRENT_VERSION';
-          const previous = '$PREVIOUS_VERSION';
-          
-          // Simple semver parsing (major.minor.patch)
-          function parseVersion(version) {
+          # Determine release type and formatting
+          if [ "$RELEASE_PRERELEASE" = "true" ]; then
+            COLOR="15105570"  # Orange
+            EMOJI="🧪"
+            TITLE="Pre-Release Published"
+          else
+            # Parse version to determine type
+            VERSION_TYPE=$(node <<VERSION_SCRIPT
+            const tag = '$RELEASE_TAG';
+            // Remove 'v' prefix if present
+            const version = tag.replace(/^v/i, '');
             const parts = version.split('.').map(function(p) { return parseInt(p) || 0; });
-            return {
-              major: parts[0] || 0,
-              minor: parts[1] || 0,
-              patch: parts[2] || 0
-            };
-          }
-          
-          try {
-            const curr = parseVersion(current);
-            const prev = parseVersion(previous);
             
-            if (curr.major > prev.major) {
+            if (parts[0] > 0 && parts[1] === 0 && parts[2] === 0) {
               console.log('major');
-            } else if (curr.minor > prev.minor) {
+            } else if (parts[1] > 0 && parts[2] === 0) {
               console.log('minor');
-            } else if (curr.patch > prev.patch) {
-              console.log('patch');
             } else {
-              console.log('other');
+              console.log('patch');
             }
-          } catch (e) {
-            console.log('other');
-          }
-          VERSION_SCRIPT
-          )
+            VERSION_SCRIPT
+            )
+            
+            case "$VERSION_TYPE" in
+              major)
+                COLOR="15158332"  # Red
+                EMOJI="🚀"
+                TITLE="Major Release"
+                ;;
+              minor)
+                COLOR="3066993"  # Green
+                EMOJI="✨"
+                TITLE="Minor Release"
+                ;;
+              patch)
+                COLOR="3447003"  # Blue
+                EMOJI="🔧"
+                TITLE="Patch Release"
+                ;;
+              *)
+                COLOR="3447003"  # Blue
+                EMOJI="📦"
+                TITLE="Release Published"
+                ;;
+            esac
+          fi
           
-          # Set color and emoji based on version type
-          case "$VERSION_TYPE" in
-            major)
-              COLOR="15158332"  # Red
-              EMOJI="🚀"
-              TITLE="Major Version Update"
+          # Handle different release actions
+          case "$RELEASE_ACTION" in
+            published)
+              # Already set above
               ;;
-            minor)
+            edited)
+              COLOR="15844367"  # Gold
+              EMOJI="✏️"
+              TITLE="Release Edited"
+              ;;
+            prereleased)
               COLOR="15105570"  # Orange
-              EMOJI="✨"
-              TITLE="Minor Version Update"
+              EMOJI="🧪"
+              TITLE="Pre-Release Published"
               ;;
-            patch)
-              COLOR="3066993"  # Green
-              EMOJI="🔧"
-              TITLE="Patch Version Update"
-              ;;
-            *)
-              COLOR="3447003"  # Blue
-              EMOJI="📌"
-              TITLE="Version Update"
+            released)
+              # Use version-based formatting
               ;;
           esac
           
@@ -135,48 +118,54 @@ jobs:
           # Use Node.js to properly build JSON payload with escaping
           cat > /tmp/discord_version_payload.js <<JS_EOF
           const repo = "$REPO";
-          const emoji = process.env.EMOJI || '📌';
-          const title = process.env.TITLE || 'Version Update';
+          const emoji = process.env.EMOJI || '📦';
+          const title = process.env.TITLE || 'Release Published';
           const color = parseInt(process.env.COLOR || '3447003', 10);
-          const previousVersion = '$PREVIOUS_VERSION';
-          const currentVersion = '$CURRENT_VERSION';
-          const commitUrl = '$COMMIT_URL';
-          const commitMessage = ('$COMMIT_MESSAGE' || '').substring(0, 200);
-          const commitAuthor = '$COMMIT_AUTHOR';
+          const releaseTag = '$RELEASE_TAG';
+          const releaseName = '$RELEASE_NAME';
+          const releaseBody = '$RELEASE_BODY';
+          const releaseUrl = '$RELEASE_URL';
+          const releaseAuthor = '$RELEASE_AUTHOR';
+          const isPrerelease = '$RELEASE_PRERELEASE' === 'true';
+          
+          // Truncate release body if too long
+          let body = releaseBody || '*No release notes*';
+          if (body.length > 1000) {
+            body = body.substring(0, 1000) + '...';
+          }
           
           // Build embed
           const embed = {
             title: emoji + ' ' + title,
-            description: '**Version changed:** ' + String.fromCharCode(96) + previousVersion + String.fromCharCode(96) + ' → ' + String.fromCharCode(96) + currentVersion + String.fromCharCode(96),
-            url: commitUrl,
+            description: '**' + (releaseName || releaseTag) + '**' + (isPrerelease ? ' (Pre-release)' : ''),
+            url: releaseUrl,
             color: color,
             fields: [
               {
-                name: 'Previous Version',
-                value: String.fromCharCode(96) + previousVersion + String.fromCharCode(96),
+                name: 'Tag',
+                value: String.fromCharCode(96) + releaseTag + String.fromCharCode(96),
                 inline: true
               },
               {
-                name: 'New Version',
-                value: String.fromCharCode(96) + currentVersion + String.fromCharCode(96),
-                inline: true
-              },
-              {
-                name: 'Commit',
-                value: '[' + commitMessage.substring(0, 50) + '...](' + commitUrl + ')',
-                inline: false
-              },
-              {
-                name: 'Author',
-                value: commitAuthor,
+                name: 'Type',
+                value: isPrerelease ? 'Pre-release' : 'Release',
                 inline: true
               }
             ],
             footer: {
-              text: repo
+              text: repo + ' • ' + releaseAuthor
             },
             timestamp: new Date().toISOString()
           };
+          
+          // Add release notes if available
+          if (body && body !== '*No release notes*') {
+            embed.fields.push({
+              name: 'Release Notes',
+              value: body,
+              inline: false
+            });
+          }
           
           console.log(JSON.stringify({ embeds: [embed] }));
           JS_EOF
