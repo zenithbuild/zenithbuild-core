@@ -124,7 +124,8 @@ jobs:
           export EMOJI TITLE COLOR
           
           # Use Node.js to properly build JSON payload with escaping
-          PAYLOAD=$(node <<EOF
+          # Write Node.js script to temp file (no quotes on heredoc to allow GitHub Actions expansion)
+          cat > /tmp/discord_payload.js <<JS_EOF
           const issue = ${{ toJSON(github.event.issue) }};
           const repo = "${{ github.repository }}";
           const emoji = process.env.EMOJI || '📋';
@@ -133,7 +134,7 @@ jobs:
           
           // Format labels - use string concatenation to avoid template literal issues
           const labels = issue.labels && issue.labels.length > 0
-            ? issue.labels.map(l => \`\`\${l.name}\`\`).join(' ')
+            ? issue.labels.map(function(l) { return String.fromCharCode(96) + l.name + String.fromCharCode(96); }).join(' ')
             : '*No labels*';
           
           // Truncate body
