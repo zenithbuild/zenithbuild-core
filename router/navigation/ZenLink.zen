@@ -59,7 +59,12 @@ function handleClick(event, el) {
       linkHref.startsWith('mailto:') ||
       linkHref.startsWith('tel:') ||
       linkHref.startsWith('javascript:')) {
-    // External/special link - let browser handle it
+    // External/special link - open in new tab if target not specified
+    if (!linkTarget) {
+      el?.setAttribute('target', '_blank')
+      el?.setAttribute('rel', 'noopener noreferrer')
+    }
+    // Let browser handle it
     return
   }
   
