@@ -1,26 +1,40 @@
 {
-  "name": "zenith",
-  "description": "",
+  "name": "@zenithbuild/core",
+  "version": "0.1.0",
+  "description": "Core library for the Zenith framework",
   "license": "MIT",
-  "keywords": [],
-  "repository": {
-    "type": "GitHub",
-    "url": "https://github.com/judahbsullivan/zenith"
+  "type": "module",
+  "main": "./index.ts",
+  "bin": {
+    "zen-dev": "./bin/zen-dev.ts",
+    "zen-build": "./bin/zen-build.ts",
+    "zen-preview": "./bin/zen-preview.ts"
   },
-  "maintainers": [
-    "Jonathan Streetman",
-    "Colin Williams",
-    "Judah Sullivan"
+  "exports": {
+    ".": "./index.ts",
+    "./compiler": "./compiler/index.ts",
+    "./core": "./core/index.ts",
+    "./router": "./router/index.ts",
+    "./runtime": "./runtime/index.ts"
+  },
+  "keywords": [
+    "zenith",
+    "core",
+    "framework"
   ],
+  "author": "Zenith Team",
+  "repository": {
+    "type": "git",
+    "url": "git@github.com:zenithbuild/zenith-core.git"
+  },
   "scripts": {
-    "dev": "bun ./runtime/serve.ts",
-    "build": "bun ./runtime/build.ts",
+    "dev": "bun dev",
+    "build": "bun build",
+    "start": "bun run build && bun run dev",
     "format": "prettier --write \"**/*.ts\"",
     "format:check": "prettier --check \"**/*.ts\""
   },
-  "module": "index.ts",
-  "type": "module",
-  "private": true,
+  "private": false,
   "devDependencies": {
     "@types/bun": "latest",
     "prettier": "^3.7.4"

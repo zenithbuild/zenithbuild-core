@@ -34,40 +34,40 @@ export function transformIR(ir: ZenIR): RuntimeCode {
     [], // declaredProps - can be enhanced with component prop analysis
     []  // declaredStores - can be enhanced with store import analysis
   )
-  
+
   // Generate expression wrappers with dependencies
   const expressions = generateExpressionWrappers(ir.template.expressions, expressionDependencies)
-  
+
   // Generate DOM creation code
   const renderFunction = generateDOMFunction(
     ir.template.nodes,
     ir.template.expressions,
     'renderDynamicPage'
   )
-  
+
   // Generate hydrate function (legacy, for reference)
   const hydrateFunction = generateHydrateFunction()
-  
+
   // Generate Phase 5 hydration runtime
   const hydrationRuntime = generateHydrationRuntime()
-  
+
   // Generate Phase 7 navigation runtime
   const navigationRuntime = generateNavigationRuntime()
-  
+
   // Generate expression registry initialization
   const expressionRegistry = generateExpressionRegistry(ir.template.expressions)
-  
+
   // Generate style injection code
   const stylesCode = generateStyleInjection(ir.styles)
-  
+
   // Extract state declarations and generate initialization
   const scriptContent = ir.script?.raw || ''
   const stateDeclarations = extractStateDeclarations(scriptContent)
   const stateInitCode = generateStateInitialization(stateDeclarations)
-  
+
   // Transform script (remove state declarations, they're handled by runtime)
   const scriptCode = transformScript(scriptContent, stateDeclarations)
-  
+
   // Generate complete runtime bundle
   const bundle = generateRuntimeBundle({
     expressions,
@@ -78,7 +78,7 @@ export function transformIR(ir: ZenIR): RuntimeCode {
     scriptCode,
     stateInitCode
   })
-  
+
   return {
     expressions,
     render: renderFunction,
@@ -102,6 +102,9 @@ function generateRuntimeBundle(parts: {
   scriptCode: string
   stateInitCode: string
 }): string {
+  // Extract function declarations from script code to register on window
+  const functionRegistrations = extractFunctionRegistrations(parts.scriptCode)
+
   return `// Zenith Runtime Bundle (Phase 5)
 // Generated at compile time - no .zen parsing in browser
 
@@ -119,8 +122,14 @@ ${parts.stateInitCode}` : ''}
 ${parts.stylesCode ? `// Style injection
 ${parts.stylesCode}` : ''}
 
-${parts.scriptCode ? `// User script code
-${parts.scriptCode}` : ''}
+// User script code and function registration
+(function() {
+  'use strict';
+  
+${parts.scriptCode ? parts.scriptCode : ''}
+
+${functionRegistrations}
+})();
 
 // Export hydration functions
 if (typeof window !== 'undefined') {
@@ -137,7 +146,93 @@ if (typeof window !== 'undefined') {
     console.warn('[Zenith] Cleanup runtime not loaded');
   };
 }
+
+// Auto-hydrate on page mount
+(function() {
+  'use strict';
+  
+  function autoHydrate() {
+    // Initialize state object
+    const state = window.__ZENITH_STATE__ || {};
+    
+    // Run state initialization if defined
+    if (typeof initializeState === 'function') {
+      initializeState(state);
+    }
+    
+    // Store state globally
+    window.__ZENITH_STATE__ = state;
+    
+    // Expose state variables on window with reactive getters/setters
+    // This allows user functions (like increment) to access state variables directly
+    for (const key in state) {
+      if (state.hasOwnProperty(key) && !window.hasOwnProperty(key)) {
+        Object.defineProperty(window, key, {
+          get: function() { return window.__ZENITH_STATE__[key]; },
+          set: function(value) { 
+            window.__ZENITH_STATE__[key] = value;
+            // Trigger reactive update
+            if (window.__zenith_update) {
+              window.__zenith_update(window.__ZENITH_STATE__);
+            }
+          },
+          configurable: true
+        });
+      }
+    }
+    
+    // Inject styles if defined
+    if (typeof injectStyles === 'function') {
+      injectStyles();
+    }
+    
+    // Get the router outlet or body
+    const container = document.querySelector('#app') || document.body;
+    
+    // Hydrate with state
+    if (window.__zenith_hydrate) {
+      window.__zenith_hydrate(state, {}, {}, {}, container);
+    }
+  }
+  
+  // Run on DOM ready
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', autoHydrate);
+  } else {
+    // DOM already loaded, run on next tick to ensure all scripts are executed
+    setTimeout(autoHydrate, 0);
+  }
+})();
 `
+}
+
+/**
+ * Extract function declarations and generate window registration code
+ */
+function extractFunctionRegistrations(scriptCode: string): string {
+  if (!scriptCode) return ''
+
+  // Match function declarations: function name(...) { ... }
+  const functionPattern = /function\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*\(/g
+  const functionNames: string[] = []
+  let match
+
+  while ((match = functionPattern.exec(scriptCode)) !== null) {
+    if (match[1]) {
+      functionNames.push(match[1])
+    }
+  }
+
+  if (functionNames.length === 0) {
+    return ''
+  }
+
+  // Generate window registration for each function
+  const registrations = functionNames.map(name =>
+    `  if (typeof ${name} === 'function') window.${name} = ${name};`
+  ).join('\n')
+
+  return `// Register functions on window for event handlers\n${registrations}`
 }
 
 /**
@@ -204,7 +299,7 @@ function generateStyleInjection(styles: Array<{ raw: string }>): string {
   if (styles.length === 0) {
     return ''
   }
-  
+
   const styleBlocks = styles.map((style, index) => {
     const escapedStyle = style.raw.replace(/`/g, '\\`').replace(/\$/g, '\\$')
     return `
@@ -212,7 +307,7 @@ function generateStyleInjection(styles: Array<{ raw: string }>): string {
   style${index}.textContent = \`${escapedStyle}\`;
   document.head.appendChild(style${index});`
   }).join('')
-  
+
   return `function injectStyles() {${styleBlocks}
 }`
 }
@@ -224,7 +319,7 @@ function generateStateInitialization(stateDeclarations: Map<string, string>): st
   if (stateDeclarations.size === 0) {
     return ''
   }
-  
+
   const initCode = Array.from(stateDeclarations.entries()).map(([name, value]) => {
     return `
   // Initialize state: ${name}
@@ -232,7 +327,7 @@ function generateStateInitialization(stateDeclarations: Map<string, string>): st
     state.${name} = ${value};
   }`
   }).join('')
-  
+
   return `function initializeState(state) {${initCode}
 }`
 }
@@ -244,13 +339,15 @@ function generateStateInitialization(stateDeclarations: Map<string, string>): st
 function transformScript(scriptContent: string, stateDeclarations: Map<string, string>): string {
   // Remove state declarations - they're handled by initializeState
   let transformed = scriptContent
-  
+
   for (const [name] of stateDeclarations.entries()) {
     // Remove "state name = value" declarations
-    const stateRegex = new RegExp(`state\\s+${name}\\s*=[^;]*;?`, 'g')
+    // Use [^\n;]* to match until newline or semicolon (non-greedy on line scope)
+    // Then optionally match the semicolon and any trailing newline
+    const stateRegex = new RegExp(`state\\s+${name}\\s*=[^\\n;]*;?\\n?`, 'g')
     transformed = transformed.replace(stateRegex, '')
   }
-  
+
   return transformed.trim()
 }
 

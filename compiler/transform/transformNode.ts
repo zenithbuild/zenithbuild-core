@@ -10,7 +10,7 @@ import type { Binding } from '../output/types'
 let bindingIdCounter = 0
 
 function generateBindingId(): string {
-  return `exp_${bindingIdCounter++}`
+  return `expr_${bindingIdCounter++}`
 }
 
 /**
@@ -23,12 +23,12 @@ export function transformNode(
   parentLoopContext?: LoopContext  // Phase 7: Loop context from parent map expressions
 ): { html: string; bindings: Binding[] } {
   const bindings: Binding[] = []
-  
+
   function transform(node: TemplateNode, loopContext?: LoopContext): string {
     switch (node.type) {
       case 'text':
         return escapeHtml((node as TextNode).value)
-      
+
       case 'expression': {
         const exprNode = node as ExpressionNode
         // Find the expression in the expressions array
@@ -36,11 +36,11 @@ export function transformNode(
         if (!expr) {
           throw new Error(`Expression ${exprNode.expression} not found`)
         }
-        
+
         const bindingId = generateBindingId()
         // Phase 7: Use loop context from ExpressionNode if available, otherwise use passed context
         const activeLoopContext = exprNode.loopContext || loopContext
-        
+
         bindings.push({
           id: bindingId,
           type: 'text',
@@ -49,14 +49,14 @@ export function transformNode(
           location: expr.location,
           loopContext: activeLoopContext  // Phase 7: Attach loop context to binding
         })
-        
+
         return `<span data-zen-text="${bindingId}"></span>`
       }
-      
+
       case 'element': {
         const elNode = node as ElementNode
         const tag = elNode.tag
-        
+
         // Build attributes
         const attrs: string[] = []
         for (const attr of elNode.attributes) {
@@ -70,7 +70,7 @@ export function transformNode(
             const bindingId = generateBindingId()
             // Phase 7: Use loop context from AttributeIR if available, otherwise use element's loop context
             const activeLoopContext = attr.loopContext || loopContext
-            
+
             bindings.push({
               id: bindingId,
               type: 'attribute',
@@ -79,35 +79,35 @@ export function transformNode(
               location: expr.location,
               loopContext: activeLoopContext  // Phase 7: Attach loop context to binding
             })
-            
+
             // Use data-zen-attr-{name} for attribute expressions
             attrs.push(`data-zen-attr-${attr.name}="${bindingId}"`)
           }
         }
-        
+
         const attrStr = attrs.length > 0 ? ' ' + attrs.join(' ') : ''
-        
+
         // Phase 7: Use loop context from ElementNode if available, otherwise use passed context
         const activeLoopContext = elNode.loopContext || loopContext
-        
+
         // Transform children
         const childrenHtml = elNode.children.map(child => transform(child, activeLoopContext)).join('')
-        
+
         // Self-closing tags
         const voidElements = new Set([
           'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input',
           'link', 'meta', 'param', 'source', 'track', 'wbr'
         ])
-        
+
         if (voidElements.has(tag.toLowerCase()) && childrenHtml === '') {
           return `<${tag}${attrStr} />`
         }
-        
+
         return `<${tag}${attrStr}>${childrenHtml}</${tag}>`
       }
     }
   }
-  
+
   const html = transform(node, parentLoopContext)
   return { html, bindings }
 }
