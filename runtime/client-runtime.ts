@@ -426,7 +426,12 @@ export function bindEvents(container: Element | Document): void {
             // Create new handler
             const handler = (event: Event) => {
                 try {
-                    const handlerFunc = (window as any)[handlerName];
+                    // Try window first, then expression registry
+                    let handlerFunc = (window as any)[handlerName];
+                    if (typeof handlerFunc !== 'function') {
+                        handlerFunc = (window as any).__ZENITH_EXPRESSIONS__?.get(handlerName);
+                    }
+
                     if (typeof handlerFunc === 'function') {
                         handlerFunc(event, element);
                     } else {

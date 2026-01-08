@@ -11,15 +11,13 @@
 import fs from "fs"
 import path from "path"
 // Import new compiler
-import { compileZen } from "./index"
-// Legacy imports (fallback for now)
-import { parseZen } from "./legacy/parse"
-import { splitZen } from "./legacy/split"
-import { processComponents } from "./legacy/component-process"
-import { 
-  discoverPages, 
+import { compileZen, compileZenSource } from "./index"
+import { discoverLayouts } from "./discovery/layouts"
+import { processLayout } from "./transform/layoutProcessor"
+import {
+  discoverPages,
   generateRouteDefinition,
-  routePathToRegex 
+  routePathToRegex
 } from "../router/manifest"
 
 interface CompiledPage {
@@ -44,139 +42,58 @@ interface SPABuildOptions {
 
 /**
  * Compile a single page file
- * Uses new compiler by default, falls back to legacy if needed
  */
 function compilePage(
   pagePath: string,
   pagesDir: string,
-  useNewCompiler: boolean = true  // Feature flag: use new compiler
+  baseDir: string = process.cwd()
 ): CompiledPage {
-  if (useNewCompiler) {
-    try {
-      // Use new compiler pipeline
-      const result = compileZen(pagePath)
-      
-      if (!result.finalized) {
-        throw new Error(`Compilation failed: No finalized output`)
-      }
-      
-      // Extract compiled output
-      const html = result.finalized.html
-      const js = result.finalized.js
-      const styles = result.finalized.styles
-      
-      // Convert JS bundle to scripts array (for compatibility)
-      const scripts = js ? [js] : []
-      
-      // Generate route definition
-      const routeDef = generateRouteDefinition(pagePath, pagesDir)
-      const regex = routePathToRegex(routeDef.path)
-      
-      return {
-        routePath: routeDef.path,
-        filePath: pagePath,
-        html,
-        scripts,
-        styles,
-        score: routeDef.score,
-        paramNames: routeDef.paramNames,
-        regex
-      }
-    } catch (error: any) {
-      console.warn(`[Zenith Build] New compiler failed for ${pagePath}, falling back to legacy:`, error.message)
-      // Fall through to legacy compiler
+  try {
+    const layoutsDir = path.join(baseDir, 'app', 'layouts')
+    const layouts = discoverLayouts(layoutsDir)
+
+    const source = fs.readFileSync(pagePath, 'utf-8')
+
+    // Find suitable layout
+    let processedSource = source
+    let layoutToUse = layouts.get('DefaultLayout')
+
+    if (layoutToUse) {
+      processedSource = processLayout(source, layoutToUse)
     }
-  }
-  
-  // Legacy compiler (fallback)
-  // Parse the .zen file
-  const zen = parseZen(pagePath)
-  
-  // Process components and layouts
-  const processedZen = processComponents(zen, pagePath)
-  
-  // Split into html, scripts, styles
-  const { 
-    html, 
-    styles, 
-    scripts, 
-    eventTypes, 
-    stateBindings, 
-    stateDeclarations, 
-    bindings,
-    expressionBlocks,
-    attrExprBindings
-  } = splitZen(processedZen)
-  
-  // Import runtime generators
-  const { generateEventBindingRuntime } = require("./legacy/event")
-  const { generateBindingRuntime } = require("./legacy/binding")
-  const { generateAttributeBindingRuntime } = require("./legacy/bindings")
-  const { generateExpressionRuntime, generateExpressionRuntimeHelpers, generateAttributeExpressionRuntime } = require("./legacy/expression")
-  
-  // Generate runtime code
-  const eventRuntime = generateEventBindingRuntime(eventTypes)
-  const bindingRuntime = generateBindingRuntime(stateBindings, stateDeclarations)
-  const attributeBindingRuntime = generateAttributeBindingRuntime(bindings)
-  
-  // Generate expression runtime
-  // Always generate helpers if we have :class/:value bindings OR expression blocks
-  // (bindings.ts uses window.__zen_eval_expr for :class expressions)
-  const hasExpressions = expressionBlocks.length > 0 || attrExprBindings.length > 0 || bindings.length > 0
-  const expressionRuntimeHelpers = hasExpressions ? generateExpressionRuntimeHelpers() : ''
-  const expressionRuntimes = expressionBlocks.map((block: any) => 
-    generateExpressionRuntime(block.expression, block.placeholderId)
-  ).join('\n')
-  const attrExprRuntime = generateAttributeExpressionRuntime(attrExprBindings)
-  
-  // Combine scripts with runtime
-  // If scripts array is empty but we have runtimes to add, create a script entry
-  const baseScripts = scripts.length > 0 ? scripts : ['']
-  
-  const scriptsWithRuntime = baseScripts.map((s, index) => {
-    let result = ""
-    
-    // Add expression helpers first (only to first script)
-    if (expressionRuntimeHelpers && index === 0) {
-      result += expressionRuntimeHelpers + "\n\n"
+
+    // Use new compiler pipeline on the processed source
+    const result = compileZenSource(processedSource, pagePath)
+
+    if (!result.finalized) {
+      throw new Error(`Compilation failed: No finalized output`)
     }
-    
-    if (bindingRuntime) {
-      result += bindingRuntime + "\n\n"
+
+    // Extract compiled output
+    const html = result.finalized.html
+    const js = result.finalized.js
+    const styles = result.finalized.styles
+
+    // Convert JS bundle to scripts array (for compatibility)
+    const scripts = js ? [js] : []
+
+    // Generate route definition
+    const routeDef = generateRouteDefinition(pagePath, pagesDir)
+    const regex = routePathToRegex(routeDef.path)
+
+    return {
+      routePath: routeDef.path,
+      filePath: pagePath,
+      html,
+      scripts,
+      styles,
+      score: routeDef.score,
+      paramNames: routeDef.paramNames,
+      regex
     }
-    if (attributeBindingRuntime) {
-      result += attributeBindingRuntime + "\n\n"
-    }
-    result += s
-    
-    // Add expression and event runtimes to first script
-    if (index === 0) {
-      if (expressionRuntimes) {
-        result += `\n\n${expressionRuntimes}`
-      }
-      if (attrExprRuntime) {
-        result += `\n\n${attrExprRuntime}`
-      }
-      if (eventRuntime) {
-      result += `\n\n${eventRuntime}`
-      }
-    }
-    return result
-  })
-  
-  // Generate route definition
-  const routeDef = generateRouteDefinition(pagePath, pagesDir)
-  const regex = routePathToRegex(routeDef.path)
-  
-  return {
-    routePath: routeDef.path,
-    filePath: pagePath,
-    html,
-    scripts: scriptsWithRuntime,
-    styles,
-    score: routeDef.score,
-    paramNames: routeDef.paramNames,
-    regex
+  } catch (error: any) {
+    console.error(`[Zenith Build] Compilation failed for ${pagePath}:`, error.message)
+    throw error
   }
 }
 
@@ -839,7 +756,7 @@ function generateHTMLShell(
 ): string {
   // Collect all global styles (from layouts)
   const globalStyles = layoutStyles.join("\n")
-  
+
   // Generate route manifest JavaScript
   const manifestJS = pages.map(page => ({
     path: page.routePath,
@@ -848,20 +765,20 @@ function generateHTMLShell(
     score: page.score,
     filePath: page.filePath
   }))
-  
+
   // Generate page modules JavaScript  
   const modulesJS = pages.map(page => {
     const escapedHtml = JSON.stringify(page.html)
     const escapedScripts = JSON.stringify(page.scripts)
     const escapedStyles = JSON.stringify(page.styles)
-    
+
     return `${JSON.stringify(page.routePath)}: {
       html: ${escapedHtml},
       scripts: ${escapedScripts},
       styles: ${escapedStyles}
     }`
   }).join(",\n    ")
-  
+
   // Generate manifest with actual RegExp objects
   const manifestCode = `[
     ${pages.map(page => `{
@@ -871,7 +788,7 @@ function generateHTMLShell(
       score: ${page.score}
     }`).join(",\n    ")}
   ]`
-  
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -928,30 +845,30 @@ function generateHTMLShell(
  */
 export function buildSPA(options: SPABuildOptions): void {
   const { pagesDir, outDir, baseDir } = options
-  
+
   // Clean output directory
   if (fs.existsSync(outDir)) {
     fs.rmSync(outDir, { recursive: true, force: true })
   }
   fs.mkdirSync(outDir, { recursive: true })
-  
+
   // Discover all pages
   const pageFiles = discoverPages(pagesDir)
-  
+
   if (pageFiles.length === 0) {
     console.warn("[Zenith Build] No pages found in", pagesDir)
     return
   }
-  
+
   console.log(`[Zenith Build] Found ${pageFiles.length} page(s)`)
-  
+
   // Compile all pages
   const compiledPages: CompiledPage[] = []
   const layoutStyles: string[] = []
-  
+
   for (const pageFile of pageFiles) {
     console.log(`[Zenith Build] Compiling: ${path.relative(pagesDir, pageFile)}`)
-    
+
     try {
       const compiled = compilePage(pageFile, pagesDir)
       compiledPages.push(compiled)
@@ -960,29 +877,29 @@ export function buildSPA(options: SPABuildOptions): void {
       throw error
     }
   }
-  
+
   // Sort pages by score (highest first)
   compiledPages.sort((a, b) => b.score - a.score)
-  
+
   // Extract layout styles (they should be global)
   // For now, we'll include any styles from the first page that uses a layout
   // TODO: Better layout handling
-  
+
   // Generate HTML shell
   const htmlShell = generateHTMLShell(compiledPages, layoutStyles)
-  
+
   // Write index.html
   fs.writeFileSync(path.join(outDir, "index.html"), htmlShell)
-  
+
   // Copy favicon if it exists
   const faviconPath = path.join(path.dirname(pagesDir), "favicon.ico")
   if (fs.existsSync(faviconPath)) {
     fs.copyFileSync(faviconPath, path.join(outDir, "favicon.ico"))
   }
-  
+
   console.log(`[Zenith Build] Successfully built ${compiledPages.length} page(s)`)
   console.log(`[Zenith Build] Output: ${outDir}/index.html`)
-  
+
   // Log route manifest
   console.log("\n[Zenith Build] Route Manifest:")
   for (const page of compiledPages) {

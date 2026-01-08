@@ -17,7 +17,7 @@ export function generateDOMCode(
   varCounter: { count: number } = { count: 0 }
 ): { code: string; varName: string } {
   const varName = `node_${varCounter.count++}`
-  
+
   switch (node.type) {
     case 'text': {
       const textNode = node as TextNode
@@ -27,14 +27,14 @@ export function generateDOMCode(
         varName
       }
     }
-    
+
     case 'expression': {
       const exprNode = node as ExpressionNode
       const expr = expressions.find(e => e.id === exprNode.expression)
       if (!expr) {
         throw new Error(`Expression ${exprNode.expression} not found`)
       }
-      
+
       // Create a span element to hold the expression result
       return {
         code: `${indent}const ${varName} = document.createElement('span');
@@ -43,13 +43,13 @@ ${indent}${varName}.setAttribute('data-zen-expr', '${exprNode.expression}');`,
         varName
       }
     }
-    
+
     case 'element': {
       const elNode = node as ElementNode
       const tag = elNode.tag
-      
+
       let code = `${indent}const ${varName} = document.createElement('${tag}');\n`
-      
+
       // Handle attributes
       for (const attr of elNode.attributes) {
         if (typeof attr.value === 'string') {
@@ -60,7 +60,7 @@ ${indent}${varName}.setAttribute('data-zen-expr', '${exprNode.expression}');`,
           // Expression attribute
           const expr = attr.value as ExpressionIR
           const attrName = attr.name === 'className' ? 'class' : attr.name
-          
+
           // Handle special attributes
           if (attrName === 'class' || attrName === 'className') {
             code += `${indent}${varName}.className = String(${expr.id}(state) ?? '');\n`
@@ -70,9 +70,10 @@ ${indent}if (typeof styleValue_${varCounter.count} === 'string') {
 ${indent}  ${varName}.style.cssText = styleValue_${varCounter.count};
 ${indent}}\n`
           } else if (attrName.startsWith('on')) {
-            // Event handler - store handler name, will be bound later
+            // Event handler - store handler name/id, will be bound later
             const eventType = attrName.slice(2).toLowerCase() // Remove 'on' prefix
-            code += `${indent}${varName}.setAttribute('data-zen-${eventType}', ${JSON.stringify(attr.value as any)});\n`
+            const value = typeof attr.value === 'string' ? attr.value : (attr.value as ExpressionIR).id
+            code += `${indent}${varName}.setAttribute('data-zen-${eventType}', ${JSON.stringify(value)});\n`
           } else {
             const tempVar = `attr_${varCounter.count++}`
             code += `${indent}const ${tempVar} = ${expr.id}(state);
@@ -82,7 +83,7 @@ ${indent}}\n`
           }
         }
       }
-      
+
       // Handle children
       if (elNode.children.length > 0) {
         for (const child of elNode.children) {
@@ -91,7 +92,7 @@ ${indent}}\n`
           code += `${indent}${varName}.appendChild(${childResult.varName});\n`
         }
       }
-      
+
       return { code, varName }
     }
   }
@@ -112,11 +113,11 @@ export function generateDOMFunction(
   return fragment;
 }`
   }
-  
+
   const varCounter = { count: 0 }
   let code = `function ${functionName}(state) {
 `
-  
+
   if (nodes.length === 1) {
     const node = nodes[0]
     if (!node) {
@@ -127,18 +128,18 @@ export function generateDOMFunction(
     code += `\n  return ${result.varName};\n}`
     return code
   }
-  
+
   // Multiple nodes - create a fragment
   code += `  const fragment = document.createDocumentFragment();\n`
-  
+
   for (const node of nodes) {
     const result = generateDOMCode(node, expressions, '  ', varCounter)
     code += `${result.code}\n`
     code += `  fragment.appendChild(${result.varName});\n`
   }
-  
+
   code += `  return fragment;
 }`
-  
+
   return code
 }

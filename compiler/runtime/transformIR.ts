@@ -8,9 +8,9 @@ import type { ZenIR } from '../ir/types'
 import { generateExpressionWrappers } from './wrapExpression'
 import { generateDOMFunction } from './generateDOM'
 import { generateHydrationRuntime, generateExpressionRegistry } from './generateHydrationBundle'
-import { analyzeAllExpressions, type ExpressionDataDependencies } from './dataExposure'
+import { analyzeAllExpressions } from './dataExposure'
 import { generateNavigationRuntime } from './navigation'
-import { extractStateDeclarations } from '../legacy/parse'
+import { extractStateDeclarations, extractProps, transformStateDeclarations } from '../parse/scriptAnalysis'
 
 export interface RuntimeCode {
   expressions: string  // Expression wrapper functions
@@ -30,9 +30,9 @@ export function transformIR(ir: ZenIR): RuntimeCode {
   const expressionDependencies = analyzeAllExpressions(
     ir.template.expressions,
     ir.filePath,
-    [], // declaredLoaderProps - can be enhanced with loader analysis
-    [], // declaredProps - can be enhanced with component prop analysis
-    []  // declaredStores - can be enhanced with store import analysis
+    [], // declaredLoaderProps
+    ir.script?.attributes['props'] ? ir.script.attributes['props'].split(',') : [], // declaredProps
+    []  // declaredStores
   )
 
   // Generate expression wrappers with dependencies
@@ -60,13 +60,15 @@ export function transformIR(ir: ZenIR): RuntimeCode {
   // Generate style injection code
   const stylesCode = generateStyleInjection(ir.styles)
 
-  // Extract state declarations and generate initialization
+  // Extract state and prop declarations
   const scriptContent = ir.script?.raw || ''
   const stateDeclarations = extractStateDeclarations(scriptContent)
-  const stateInitCode = generateStateInitialization(stateDeclarations)
+  const propKeys = Object.keys(ir.script?.attributes || {}).filter(k => k !== 'setup' && k !== 'lang')
+  const propDeclarations = extractProps(scriptContent)
+  const stateInitCode = generateStateInitialization(stateDeclarations, [...propDeclarations, ...propKeys])
 
-  // Transform script (remove state declarations, they're handled by runtime)
-  const scriptCode = transformScript(scriptContent, stateDeclarations)
+  // Transform script (remove state and prop declarations, they're handled by runtime)
+  const scriptCode = transformStateDeclarations(scriptContent)
 
   // Generate complete runtime bundle
   const bundle = generateRuntimeBundle({
@@ -314,40 +316,32 @@ function generateStyleInjection(styles: Array<{ raw: string }>): string {
 
 /**
  * Generate state initialization code
+ * In Phase 9: Also handles props passing
  */
-function generateStateInitialization(stateDeclarations: Map<string, string>): string {
-  if (stateDeclarations.size === 0) {
-    return ''
-  }
-
-  const initCode = Array.from(stateDeclarations.entries()).map(([name, value]) => {
+function generateStateInitialization(stateDeclarations: Map<string, string>, propDeclarations: string[]): string {
+  const stateInit = Array.from(stateDeclarations.entries()).map(([name, value]) => {
     return `
   // Initialize state: ${name}
-  if (!state.${name}) {
+  if (typeof state.${name} === 'undefined') {
     state.${name} = ${value};
   }`
   }).join('')
 
-  return `function initializeState(state) {${initCode}
+  const legacyPropInit = propDeclarations.includes('props') ? `
+  // Initialize props object (legacy)
+  if (typeof window.__ZEN_PROPS__ !== 'undefined') {
+    state.props = window.__ZEN_PROPS__;
+  }` : ''
+
+  const individualPropInit = propDeclarations.filter(p => p !== 'props').map(prop => `
+  // Initialize prop: ${prop}
+  if (typeof state.${prop} === 'undefined' && typeof window.__ZEN_PROPS__ !== 'undefined' && typeof window.__ZEN_PROPS__.${prop} !== 'undefined') {
+    state.${prop} = window.__ZEN_PROPS__.${prop};
+  }`).join('')
+
+  return `function initializeState(state) {${stateInit}${legacyPropInit}${individualPropInit}
 }`
 }
 
-/**
- * Transform script content
- * Removes state declarations (they're handled by state initialization)
- */
-function transformScript(scriptContent: string, stateDeclarations: Map<string, string>): string {
-  // Remove state declarations - they're handled by initializeState
-  let transformed = scriptContent
-
-  for (const [name] of stateDeclarations.entries()) {
-    // Remove "state name = value" declarations
-    // Use [^\n;]* to match until newline or semicolon (non-greedy on line scope)
-    // Then optionally match the semicolon and any trailing newline
-    const stateRegex = new RegExp(`state\\s+${name}\\s*=[^\\n;]*;?\\n?`, 'g')
-    transformed = transformed.replace(stateRegex, '')
-  }
-
-  return transformed.trim()
-}
+// Note: transformScript is now handled by transformStateDeclarations in legacy/parse.ts
 

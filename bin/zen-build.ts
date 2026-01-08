@@ -2,26 +2,38 @@
 /**
  * Zenith Internal Build Script
  * 
- * Compiles all pages in app/pages to app/dist using the SPA builder.
+ * Compiles all pages in app/pages to app/dist using the SSG builder.
  * This script is called via `bun run build` in user projects.
+ * 
+ * SSG-first approach:
+ * - Static pages: HTML + CSS only
+ * - Hydrated pages: HTML + bundle.js + page-specific JS
+ * - Shared runtime in assets/bundle.js
  */
 
 import path from 'path'
-import { buildSPA } from '../compiler/spa-build'
+import fs from 'fs'
+import { buildSSG } from '../compiler/ssg-build'
 
 const projectRoot = process.cwd()
-const appDir = path.join(projectRoot, 'app')
 
-console.log('🔨 Building Zenith app...')
-console.log(`   Project: ${projectRoot}`)
+// Support both app/ and src/ directory structures
+let appDir = path.join(projectRoot, 'app')
+if (!fs.existsSync(appDir)) {
+    appDir = path.join(projectRoot, 'src')
+}
+
+if (!fs.existsSync(appDir)) {
+    console.error('❌ No app/ or src/ directory found')
+    process.exit(1)
+}
 
 try {
-    buildSPA({
+    buildSSG({
         pagesDir: path.join(appDir, 'pages'),
         outDir: path.join(appDir, 'dist'),
         baseDir: appDir
     })
-    console.log('✅ Build complete → app/dist/')
 } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err)
     console.error('❌ Build failed:', message)

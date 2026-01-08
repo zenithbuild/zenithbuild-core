@@ -32,21 +32,52 @@ function stripBlocks(html: string): string {
 /**
  * Normalize attribute expressions before parsing
  * Replaces attr={expr} with attr="__ZEN_EXPR_base64" so parse5 can parse it
+ * Handles nested braces for complex expressions like props={{ title: 'Home' }}
  */
 function normalizeAttributeExpressions(html: string): { normalized: string; expressions: Map<string, string> } {
   const exprMap = new Map<string, string>()
   let exprCounter = 0
 
-  // Match attributes with expression values: attr={...}
-  // Use a more sophisticated regex to handle nested braces and quotes
-  const normalized = html.replace(/(\w+)=\{([^}]+)\}/g, (match, attrName, expr) => {
-    const placeholder = `__ZEN_EXPR_${exprCounter++}`
-    exprMap.set(placeholder, expr.trim())
-    return `${attrName}="${placeholder}"`
-  })
+  // Improved matching to handle nested braces: attr={ { foo: { bar: 1 } } }
+  let lastPos = 0
+  let normalized = ''
+
+  // Use a regex to find the start of an attribute expression: \w+={
+  const startRegex = /(\w+)=\{/g
+  let match
+
+  while ((match = startRegex.exec(html)) !== null) {
+    const attrName = match[1]
+    const startIndex = match.index + match[0].length - 1 // Index of '{'
+
+    // Find matching closing brace
+    let braceCount = 1
+    let i = startIndex + 1
+    while (i < html.length && braceCount > 0) {
+      if (html[i] === '{') braceCount++
+      else if (html[i] === '}') braceCount--
+      i++
+    }
+
+    if (braceCount === 0) {
+      const expr = html.substring(startIndex + 1, i - 1).trim()
+      const placeholder = `__ZEN_EXPR_${exprCounter++}`
+      exprMap.set(placeholder, expr)
+
+      normalized += html.substring(lastPos, match.index)
+      normalized += `${attrName}="${placeholder}"`
+      lastPos = i
+
+      // Update regex index to continue after the closing brace
+      startRegex.lastIndex = i
+    }
+  }
+
+  normalized += html.substring(lastPos)
 
   return { normalized, expressions: exprMap }
 }
+
 
 /**
  * Calculate source location from parse5 node

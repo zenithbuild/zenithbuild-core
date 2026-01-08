@@ -37,7 +37,7 @@ export function transformNode(
           throw new Error(`Expression ${exprNode.expression} not found`)
         }
 
-        const bindingId = generateBindingId()
+        const bindingId = expr.id
         // Phase 7: Use loop context from ExpressionNode if available, otherwise use passed context
         const activeLoopContext = exprNode.loopContext || loopContext
 
@@ -67,7 +67,7 @@ export function transformNode(
           } else {
             // Expression attribute
             const expr = attr.value as ExpressionIR
-            const bindingId = generateBindingId()
+            const bindingId = expr.id
             // Phase 7: Use loop context from AttributeIR if available, otherwise use element's loop context
             const activeLoopContext = attr.loopContext || loopContext
 

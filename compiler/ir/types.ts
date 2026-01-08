@@ -70,6 +70,7 @@ export type ExpressionIR = {
 
 export type ScriptIR = {
   raw: string
+  attributes: Record<string, string>
 }
 
 export type StyleIR = {

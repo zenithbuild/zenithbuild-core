@@ -39,7 +39,7 @@ export function analyzeExpressionDependencies(
   declaredStores: string[] = []
 ): ExpressionDataDependencies {
   const { id, code } = expr
-  
+
   const dependencies: ExpressionDataDependencies = {
     expressionId: id,
     usesLoaderData: false,
@@ -51,14 +51,14 @@ export function analyzeExpressionDependencies(
     storeNames: [],
     stateProperties: []
   }
-  
+
   // Simple pattern matching (for Phase 6 - can be enhanced with proper AST parsing later)
-  
+
   // Check for loader data references (loaderData.property or direct property access)
   // We assume properties not starting with props/stores/state are loader data
   const loaderPattern = /\b(loaderData\.(\w+(?:\.\w+)*)|(?<!props\.|stores\.|state\.)(\w+)\.(\w+))/g
   let match
-  
+
   // Check for explicit loaderData references
   if (/loaderData\./.test(code)) {
     dependencies.usesLoaderData = true
@@ -71,7 +71,7 @@ export function analyzeExpressionDependencies(
       }
     }
   }
-  
+
   // Check for props references
   const propsPattern = /\bprops\.(\w+)(?:\.(\w+))*/g
   if (/props\./.test(code)) {
@@ -83,7 +83,7 @@ export function analyzeExpressionDependencies(
       }
     }
   }
-  
+
   // Check for stores references
   const storesPattern = /\bstores\.(\w+)(?:\.(\w+))*/g
   if (/stores\./.test(code)) {
@@ -95,12 +95,12 @@ export function analyzeExpressionDependencies(
       }
     }
   }
-  
+
   // Check for state references (top-level properties)
   // Simple identifiers that aren't part of props/stores/loaderData paths
   const identifierPattern = /\b([a-zA-Z_$][a-zA-Z0-9_$]*)\b/g
   const reserved = ['props', 'stores', 'loaderData', 'state', 'true', 'false', 'null', 'undefined', 'this', 'window']
-  
+
   const identifiers = new Set<string>()
   while ((match = identifierPattern.exec(code)) !== null) {
     const ident = match[1]
@@ -108,13 +108,31 @@ export function analyzeExpressionDependencies(
       identifiers.add(ident)
     }
   }
-  
-  // If we have identifiers and no explicit data source, assume state
-  if (identifiers.size > 0 && !dependencies.usesLoaderData && !dependencies.usesProps && !dependencies.usesStores) {
-    dependencies.usesState = true
-    dependencies.stateProperties = Array.from(identifiers)
+
+  // If we have identifiers, check if they are props or state
+  if (identifiers.size > 0) {
+    const propIdents: string[] = []
+    const stateIdents: string[] = []
+
+    for (const ident of identifiers) {
+      if (declaredProps.includes(ident)) {
+        propIdents.push(ident)
+      } else {
+        stateIdents.push(ident)
+      }
+    }
+
+    if (propIdents.length > 0) {
+      dependencies.usesProps = true
+      dependencies.propNames = [...new Set([...dependencies.propNames, ...propIdents])]
+    }
+
+    if (stateIdents.length > 0) {
+      dependencies.usesState = true
+      dependencies.stateProperties = Array.from(new Set([...dependencies.stateProperties, ...stateIdents]))
+    }
   }
-  
+
   return dependencies
 }
 
@@ -129,7 +147,7 @@ export function validateDataDependencies(
   declaredStores: string[] = []
 ): void {
   const errors: CompilerError[] = []
-  
+
   // Validate loader data properties
   if (dependencies.usesLoaderData && dependencies.loaderProperties.length > 0) {
     // For Phase 6, we'll allow any loader property (can be enhanced with type checking later)
@@ -145,7 +163,7 @@ export function validateDataDependencies(
       }
     }
   }
-  
+
   // Validate props
   if (dependencies.usesProps && dependencies.propNames.length > 0) {
     for (const propName of dependencies.propNames) {
@@ -155,7 +173,7 @@ export function validateDataDependencies(
       }
     }
   }
-  
+
   // Validate stores
   if (dependencies.usesStores && dependencies.storeNames.length > 0) {
     for (const storeName of dependencies.storeNames) {
@@ -169,7 +187,7 @@ export function validateDataDependencies(
       }
     }
   }
-  
+
   if (errors.length > 0) {
     throw errors[0] // Throw first error (can be enhanced to collect all)
   }
@@ -189,14 +207,14 @@ export function transformExpressionCode(
   declaredProps: string[] = []
 ): string {
   let transformed = code
-  
+
   // For Phase 6, we keep the code as-is but ensure expressions
   // receive the right arguments. The actual transformation happens
   // in the expression wrapper function signature.
-  
+
   // However, if the code references properties directly (without loaderData/props/stores prefix),
   // we need to assume they're state properties (backwards compatibility)
-  
+
   return transformed
 }
 
@@ -208,10 +226,10 @@ export function generateExplicitExpressionWrapper(
   dependencies: ExpressionDataDependencies
 ): string {
   const { id, code } = expr
-  
+
   // Build function signature based on dependencies
   const params: string[] = ['state']
-  
+
   if (dependencies.usesLoaderData) {
     params.push('loaderData')
   }
@@ -221,12 +239,12 @@ export function generateExplicitExpressionWrapper(
   if (dependencies.usesStores) {
     params.push('stores')
   }
-  
+
   const paramList = params.join(', ')
-  
+
   // Build evaluation context
   const contextParts: string[] = []
-  
+
   if (dependencies.usesLoaderData) {
     contextParts.push('loaderData')
   }
@@ -239,14 +257,14 @@ export function generateExplicitExpressionWrapper(
   if (dependencies.usesState) {
     contextParts.push('state')
   }
-  
+
   // Create merged context for 'with' statement
   const contextCode = contextParts.length > 0
     ? `const __ctx = Object.assign({}, ${contextParts.join(', ')});\n      with (__ctx) {`
     : 'with (state) {'
-  
+
   const escapedCode = code.replace(/`/g, '\\`').replace(/\$/g, '\\$')
-  
+
   return `
   // Expression: ${escapedCode}
   // Dependencies: ${JSON.stringify({
@@ -280,12 +298,12 @@ export function analyzeAllExpressions(
   const dependencies = expressions.map(expr =>
     analyzeExpressionDependencies(expr, declaredLoaderProps, declaredProps, declaredStores)
   )
-  
+
   // Validate all dependencies
   for (const dep of dependencies) {
     validateDataDependencies(dep, filePath, declaredLoaderProps, declaredProps, declaredStores)
   }
-  
+
   return dependencies
 }
 

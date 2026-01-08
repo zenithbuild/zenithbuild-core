@@ -14,59 +14,52 @@
 import path from 'path'
 import fs from 'fs'
 import { serve } from 'bun'
-import { compileZen } from '../compiler/index'
-import { parseZen } from '../compiler/legacy/parse'
-import { splitZen } from '../compiler/legacy/split'
-import { processComponents } from '../compiler/legacy/component-process'
+import { compileZen, compileZenSource } from '../compiler/index'
+import { discoverLayouts } from '../compiler/discovery/layouts'
+import { processLayout } from '../compiler/transform/layoutProcessor'
 import { discoverPages, generateRouteDefinition, routePathToRegex } from '../router/manifest'
+import { generateBundleJS } from '../runtime/bundle-generator'
 
 const projectRoot = process.cwd()
-const appDir = path.join(projectRoot, 'app')
+
+// Support both app/ and src/ directory structures
+let appDir = path.join(projectRoot, 'app')
+if (!fs.existsSync(appDir)) {
+  appDir = path.join(projectRoot, 'src')
+}
+
 const pagesDir = path.join(appDir, 'pages')
 const port = parseInt(process.env.PORT || '3000', 10)
 
 // File extensions that should be served as static assets
 const STATIC_EXTENSIONS = new Set([
-    '.js', '.css', '.ico', '.png', '.jpg', '.jpeg', '.gif', '.svg',
-    '.webp', '.woff', '.woff2', '.ttf', '.eot', '.json', '.map'
+  '.js', '.css', '.ico', '.png', '.jpg', '.jpeg', '.gif', '.svg',
+  '.webp', '.woff', '.woff2', '.ttf', '.eot', '.json', '.map'
 ])
 
 // Page compilation cache
 interface CompiledPage {
-    html: string
-    script: string
-    styles: string[]
-    route: string
-    lastModified: number
+  html: string
+  script: string
+  styles: string[]
+  route: string
+  lastModified: number
 }
 const pageCache = new Map<string, CompiledPage>()
 
 /**
  * Generate the shared runtime JavaScript
+ * Uses the bundle generator for consistency with production builds
  */
 function generateRuntimeJS(): string {
-    // Read and compile the client runtime
-    const runtimePath = path.join(__dirname, '../runtime/client-runtime.ts')
-
-    // For now, inline the transpiled runtime
-    // In production, this would be pre-built
-    return `// Zenith Runtime v0.1.0
-// Auto-generated shared runtime module
-
-${generateInlineRuntime()}
-
-// Initialize on load
-if (typeof window !== 'undefined') {
-  window.__ZENITH_RUNTIME_LOADED__ = true;
-}
-`
+  return generateBundleJS()
 }
 
 /**
  * Generate inline runtime code (extracted from client-runtime.ts logic)
  */
 function generateInlineRuntime(): string {
-    return `(function() {
+  return `(function() {
   'use strict';
   
   // Dependency Tracking
@@ -506,216 +499,286 @@ function generateInlineRuntime(): string {
  * Compile a .zen page in memory
  */
 function compilePageInMemory(pagePath: string): CompiledPage | null {
-    try {
-        const result = compileZen(pagePath)
+  try {
+    const layoutsDir = path.join(appDir, 'layouts')
+    const layouts = discoverLayouts(layoutsDir)
 
-        if (!result.finalized) {
-            throw new Error('Compilation failed: No finalized output')
-        }
+    const source = fs.readFileSync(pagePath, 'utf-8')
 
-        const routeDef = generateRouteDefinition(pagePath, pagesDir)
+    // Find suitable layout
+    let processedSource = source
+    let layoutToUse = layouts.get('DefaultLayout')
 
-        return {
-            html: result.finalized.html,
-            script: result.finalized.js,
-            styles: result.finalized.styles,
-            route: routeDef.path,
-            lastModified: Date.now()
-        }
-    } catch (error: any) {
-        console.error(`[Zenith Dev] Compilation error for ${pagePath}:`, error.message)
-        return null
+    if (layoutToUse) {
+      processedSource = processLayout(source, layoutToUse)
     }
+
+    const result = compileZenSource(processedSource, pagePath)
+
+    if (!result.finalized) {
+      throw new Error('Compilation failed: No finalized output')
+    }
+
+    const routeDef = generateRouteDefinition(pagePath, pagesDir)
+
+    return {
+      html: result.finalized.html,
+      script: result.finalized.js,
+      styles: result.finalized.styles,
+      route: routeDef.path,
+      lastModified: Date.now()
+    }
+  } catch (error: any) {
+    console.error(`[Zenith Dev] Compilation error for ${pagePath}:`, error.message)
+    return null
+  }
 }
 
 /**
- * Generate full HTML page with injected runtime and page script
+ * Generate full HTML page from compiled output
  */
 function generateDevHTML(page: CompiledPage): string {
-    const styles = page.styles.map(s => `<style>${s}</style>`).join('\n')
+  // page.html already contains the full layout (html, head, body)
+  // because layoutProcessor.ts merges it.
+  // We need to inject the runtime script BEFORE the page script
 
-    return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Zenith Dev</title>
-  ${styles}
-</head>
-<body>
-  <div id="app">
-    ${page.html}
-  </div>
-  
-  <!-- Zenith Runtime -->
-  <script src="/runtime.js"></script>
-  
-  <!-- Page Script with Auto-Hydration -->
-  <script>
-${page.script}
+  // Runtime must load first so zenOnMount etc are available
+  const runtimeTag = `<script src="/runtime.js"></script>`
+  const scriptTag = `<script>\n${page.script}\n</script>`
+  const allScripts = `${runtimeTag}\n${scriptTag}`
 
-// Auto-hydrate on load
-(function() {
-  function autoHydrate() {
-    const state = window.__ZENITH_STATE__ || {};
-    
-    if (typeof initializeState === 'function') {
-      initializeState(state);
-    }
-    
-    window.__ZENITH_STATE__ = state;
-    
-    // Expose state variables on window
-    for (const key in state) {
-      if (state.hasOwnProperty(key) && !window.hasOwnProperty(key)) {
-        Object.defineProperty(window, key, {
-          get: function() { return window.__ZENITH_STATE__[key]; },
-          set: function(value) { 
-            window.__ZENITH_STATE__[key] = value;
-            if (window.__zenith_update) {
-              window.__zenith_update(window.__ZENITH_STATE__);
-            }
-          },
-          configurable: true
-        });
-      }
-    }
-    
-    if (typeof injectStyles === 'function') {
-      injectStyles();
-    }
-    
-    const container = document.querySelector('#app') || document.body;
-    if (window.__zenith_hydrate) {
-      window.__zenith_hydrate(state, {}, {}, {}, container);
-    }
+  if (page.html.includes('</body>')) {
+    return page.html.replace('</body>', `${allScripts}\n</body>`)
   }
-  
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', autoHydrate);
-  } else {
-    setTimeout(autoHydrate, 0);
-  }
-})();
-  </script>
-</body>
-</html>`
+
+  return `${page.html}\n${allScripts}`
 }
 
 /**
  * Find .zen page file for a given route
  */
 function findPageForRoute(route: string): string | null {
-    // Try exact match
-    const exactPath = path.join(pagesDir, route === '/' ? 'index.zen' : `${route.slice(1)}.zen`)
-    if (fs.existsSync(exactPath)) {
-        return exactPath
-    }
+  // Try exact match
+  const exactPath = path.join(pagesDir, route === '/' ? 'index.zen' : `${route.slice(1)}.zen`)
+  if (fs.existsSync(exactPath)) {
+    return exactPath
+  }
 
-    // Try with /index.zen suffix
-    const indexPath = path.join(pagesDir, route === '/' ? 'index.zen' : `${route.slice(1)}/index.zen`)
-    if (fs.existsSync(indexPath)) {
-        return indexPath
-    }
+  // Try with /index.zen suffix
+  const indexPath = path.join(pagesDir, route === '/' ? 'index.zen' : `${route.slice(1)}/index.zen`)
+  if (fs.existsSync(indexPath)) {
+    return indexPath
+  }
 
-    return null
+  return null
+}
+
+/**
+ * Find user-defined 404 page (if any)
+ * Checks for: 404.zen, +404.zen, not-found.zen
+ */
+function find404Page(): string | null {
+  const candidates = ['404.zen', '+404.zen', 'not-found.zen']
+  for (const candidate of candidates) {
+    const pagePath = path.join(pagesDir, candidate)
+    if (fs.existsSync(pagePath)) {
+      return pagePath
+    }
+  }
+  return null
+}
+
+/**
+ * Generate default 404 HTML (used when no user-defined 404 exists)
+ */
+function generateDefault404HTML(requestedPath: string): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Page Not Found | Zenith</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+      color: #f1f5f9;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .container {
+      text-align: center;
+      padding: 2rem;
+    }
+    .error-code {
+      font-size: 8rem;
+      font-weight: 800;
+      background: linear-gradient(135deg, #3b82f6, #06b6d4);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      line-height: 1;
+      margin-bottom: 1rem;
+    }
+    h1 {
+      font-size: 1.5rem;
+      font-weight: 600;
+      margin-bottom: 1rem;
+      color: #e2e8f0;
+    }
+    .path {
+      font-family: monospace;
+      background: rgba(255, 255, 255, 0.1);
+      padding: 0.5rem 1rem;
+      border-radius: 8px;
+      color: #94a3b8;
+      margin-bottom: 2rem;
+      display: inline-block;
+    }
+    a {
+      display: inline-block;
+      background: linear-gradient(135deg, #3b82f6, #2563eb);
+      color: white;
+      text-decoration: none;
+      padding: 0.75rem 1.5rem;
+      border-radius: 8px;
+      font-weight: 500;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    a:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px rgba(59, 130, 246, 0.4);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="error-code">404</div>
+    <h1>Page Not Found</h1>
+    <div class="path">${requestedPath}</div>
+    <p style="color: #94a3b8; margin-bottom: 2rem;">The page you're looking for doesn't exist.</p>
+    <a href="/">← Go Home</a>
+  </div>
+</body>
+</html>`
 }
 
 // Cached runtime JS
 let cachedRuntimeJS: string | null = null
 
 async function main() {
-    console.log('🚀 Starting Zenith Dev Server...')
-    console.log(`   Project: ${projectRoot}`)
+  console.log('🚀 Starting Zenith Dev Server...')
+  console.log(`   Project: ${projectRoot}`)
 
-    // Pre-generate runtime
-    cachedRuntimeJS = generateRuntimeJS()
+  // Pre-generate runtime
+  cachedRuntimeJS = generateRuntimeJS()
 
-    serve({
-        port,
-        async fetch(req) {
-            const url = new URL(req.url)
-            const pathname = url.pathname
-            const ext = path.extname(pathname).toLowerCase()
+  serve({
+    port,
+    async fetch(req) {
+      const url = new URL(req.url)
+      const pathname = url.pathname
+      const ext = path.extname(pathname).toLowerCase()
 
-            // Serve runtime.js
-            if (pathname === '/runtime.js') {
-                return new Response(cachedRuntimeJS, {
-                    headers: { 'Content-Type': 'application/javascript; charset=utf-8' }
-                })
-            }
+      // Serve runtime.js and /assets/bundle.js
+      if (pathname === '/runtime.js' || pathname === '/assets/bundle.js') {
+        return new Response(cachedRuntimeJS, {
+          headers: {
+            'Content-Type': 'application/javascript; charset=utf-8',
+            'Cache-Control': 'no-cache'
+          }
+        })
+      }
 
-            // Serve static assets from app/public or app/dist
-            if (STATIC_EXTENSIONS.has(ext)) {
-                const publicPath = path.join(appDir, 'public', pathname)
-                const distPath = path.join(appDir, 'dist', pathname)
-
-                for (const filePath of [publicPath, distPath]) {
-                    const file = Bun.file(filePath)
-                    if (await file.exists()) {
-                        return new Response(file)
-                    }
-                }
-                return new Response('Not found', { status: 404 })
-            }
-
-            // Handle .zen page routes
-            const pagePath = findPageForRoute(pathname)
-            if (pagePath) {
-                // Check cache
-                let cached = pageCache.get(pagePath)
-                const stat = fs.statSync(pagePath)
-
-                if (!cached || stat.mtimeMs > cached.lastModified) {
-                    // Recompile
-                    const compiled = compilePageInMemory(pagePath)
-                    if (compiled) {
-                        pageCache.set(pagePath, compiled)
-                        cached = compiled
-                    }
-                }
-
-                if (cached) {
-                    const html = generateDevHTML(cached)
-                    return new Response(html, {
-                        headers: { 'Content-Type': 'text/html; charset=utf-8' }
-                    })
-                }
-            }
-
-            // Fallback: try to find index.zen
-            const indexPath = path.join(pagesDir, 'index.zen')
-            if (fs.existsSync(indexPath)) {
-                let cached = pageCache.get(indexPath)
-                const stat = fs.statSync(indexPath)
-
-                if (!cached || stat.mtimeMs > cached.lastModified) {
-                    const compiled = compilePageInMemory(indexPath)
-                    if (compiled) {
-                        pageCache.set(indexPath, compiled)
-                        cached = compiled
-                    }
-                }
-
-                if (cached) {
-                    const html = generateDevHTML(cached)
-                    return new Response(html, {
-                        headers: { 'Content-Type': 'text/html; charset=utf-8' }
-                    })
-                }
-            }
-
-            return new Response('Page not found. Create app/pages/index.zen to get started.', {
-                status: 404,
-                headers: { 'Content-Type': 'text/plain' }
-            })
+      // Serve styles from /assets/ or /app/styles/
+      if (pathname === '/assets/styles.css' || pathname === '/styles/global.css' || pathname === '/app/styles/global.css') {
+        const globalCssPath = path.join(appDir, 'styles', 'global.css')
+        if (fs.existsSync(globalCssPath)) {
+          const css = fs.readFileSync(globalCssPath, 'utf-8')
+          return new Response(css, {
+            headers: { 'Content-Type': 'text/css; charset=utf-8' }
+          })
         }
-    })
+      }
 
-    console.log(`✅ Zenith dev server running at http://localhost:${port}`)
-    console.log('   • In-memory compilation (no build required)')
-    console.log('   • Auto-recompile on file changes')
-    console.log('   Press Ctrl+C to stop')
+      // Serve static assets from app/public, app/dist, or app (for /styles, etc.)
+      if (STATIC_EXTENSIONS.has(ext)) {
+        const publicPath = path.join(appDir, 'public', pathname)
+        const distPath = path.join(appDir, 'dist', pathname)
+        const appRelativePath = path.join(appDir, pathname)
+
+        for (const filePath of [publicPath, distPath, appRelativePath]) {
+          const file = Bun.file(filePath)
+          if (await file.exists()) {
+            return new Response(file)
+          }
+        }
+        return new Response('Not found', { status: 404 })
+      }
+
+      // Handle .zen page routes
+      const pagePath = findPageForRoute(pathname)
+      if (pagePath) {
+        // Check cache
+        let cached = pageCache.get(pagePath)
+        const stat = fs.statSync(pagePath)
+
+        if (!cached || stat.mtimeMs > cached.lastModified) {
+          // Recompile
+          const compiled = compilePageInMemory(pagePath)
+          if (compiled) {
+            pageCache.set(pagePath, compiled)
+            cached = compiled
+          }
+        }
+
+        if (cached) {
+          const html = generateDevHTML(cached)
+          return new Response(html, {
+            headers: { 'Content-Type': 'text/html; charset=utf-8' }
+          })
+        }
+      }
+
+      // Fallback: serve 404 page
+      const custom404Path = find404Page()
+      if (custom404Path) {
+        // Use user-defined 404 page
+        let cached = pageCache.get(custom404Path)
+        const stat = fs.statSync(custom404Path)
+
+        if (!cached || stat.mtimeMs > cached.lastModified) {
+          const compiled = compilePageInMemory(custom404Path)
+          if (compiled) {
+            pageCache.set(custom404Path, compiled)
+            cached = compiled
+          }
+        }
+
+        if (cached) {
+          const html = generateDevHTML(cached)
+          return new Response(html, {
+            status: 404,
+            headers: { 'Content-Type': 'text/html; charset=utf-8' }
+          })
+        }
+      }
+
+      // Use default 404 page
+      return new Response(generateDefault404HTML(pathname), {
+        status: 404,
+        headers: { 'Content-Type': 'text/html; charset=utf-8' }
+      })
+    }
+  })
+
+  console.log(`✅ Zenith dev server running at http://localhost:${port}`)
+  console.log('   • In-memory compilation (no build required)')
+  console.log('   • Auto-recompile on file changes')
+  console.log('   Press Ctrl+C to stop')
 }
 
 main()

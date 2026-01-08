@@ -255,10 +255,29 @@ export function generateHydrationRuntime(): string {
         // Create new handler
         const handler = function(event) {
           try {
-            // Get handler function from window (functions are registered on window)
-            const handlerFunc = window[handlerName];
+            // 1. Try to find handler function on window (for named functions)
+            let handlerFunc = window[handlerName];
+            
+            // 2. If not found, try the expression registry (for inline expressions)
+            if (typeof handlerFunc !== 'function' && window.__ZENITH_EXPRESSIONS__) {
+              handlerFunc = window.__ZENITH_EXPRESSIONS__.get(handlerName);
+            }
+
             if (typeof handlerFunc === 'function') {
-              handlerFunc(event, element);
+              // Call the handler. For expressions, we pass the current state.
+              // Note: Phase 6 handles passing loaderData, props, etc. if needed.
+              const state = window.__ZENITH_STATE__ || {};
+              const loaderData = window.__ZENITH_LOADER_DATA__ || {};
+              const props = window.__ZENITH_PROPS__ || {};
+              const stores = window.__ZENITH_STORES__ || {};
+              
+              if (handlerFunc.length === 1) {
+                // Legacy or simple handler
+                handlerFunc(event, element);
+              } else {
+                // Full context handler
+                handlerFunc(event, element, state, loaderData, props, stores);
+              }
             } else {
               console.warn('[Zenith] Event handler "' + handlerName + '" not found for ' + eventType + ' event');
             }
@@ -366,11 +385,11 @@ export function generateExpressionRegistry(expressions: ExpressionIR[]): string 
     // Registry already initialized
   }`
   }
-  
+
   const registryCode = expressions.map(expr => {
     return `  window.__ZENITH_EXPRESSIONS__.set('${expr.id}', ${expr.id});`
   }).join('\n')
-  
+
   return `
   // Initialize expression registry
   if (typeof window !== 'undefined') {
