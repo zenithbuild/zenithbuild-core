@@ -6,11 +6,11 @@
   "type": "module",
   "main": "./index.ts",
   "bin": {
-    "zenith": "./dist/cli.js",
-    "zenith-dev": "./dist/cli.js",
-    "zen-dev": "./dist/cli.js",
-    "zen-build": "./dist/cli.js",
-    "zen-preview": "./dist/cli.js"
+    "zenith": "./dist/zenith.js",
+    "zenith-dev": "./dist/zen-dev.js",
+    "zen-dev": "./dist/zen-dev.js",
+    "zen-build": "./dist/zen-build.js",
+    "zen-preview": "./dist/zen-preview.js"
   },
   "files": [
     "bin",
@@ -44,7 +44,7 @@
     "dev": "bun dev",
     "build": "bun build",
     "start": "bun run build && bun run dev",
-    "build:cli": "bun build bin/cli-source.ts --outfile dist/cli.js --target bun --bundle && echo '#!/usr/bin/env bun' | cat - dist/cli.js > dist/cli.tmp && mv dist/cli.tmp dist/cli.js && chmod +x dist/cli.js",
+    "build:cli": "bun build bin/zenith.ts bin/zen-dev.ts bin/zen-build.ts bin/zen-preview.ts --outdir dist --target bun --bundle && for f in dist/*.js; do echo '#!/usr/bin/env bun' | cat - \"$f\" > \"$f.tmp\" && mv \"$f.tmp\" \"$f\" && chmod +x \"$f\"; done",
     "format": "prettier --write \"**/*.ts\"",
     "format:check": "prettier --check \"**/*.ts\""
   },
