@@ -1,14 +1,9 @@
-/**
- * @zenith/cli - Dev Command
- * 
- * Starts the development server with in-memory compilation and hot reload
- */
-
 import path from 'path'
 import fs from 'fs'
-import { serve } from 'bun'
+import { serve, type ServerWebSocket } from 'bun'
 import { requireProject } from '../utils/project'
 import * as logger from '../utils/logger'
+import * as brand from '../utils/branding'
 import { compileZenSource } from '../../compiler/index'
 import { discoverLayouts } from '../../compiler/discovery/layouts'
 import { processLayout } from '../../compiler/transform/layoutProcessor'
@@ -32,14 +27,18 @@ const pageCache = new Map<string, CompiledPage>()
 export async function dev(options: DevOptions = {}): Promise<void> {
     const project = requireProject()
     const port = options.port || parseInt(process.env.PORT || '3000', 10)
-
-    // Support both app/ and src/ directory structures
-    const appDir = project.root
     const pagesDir = project.pagesDir
 
-    logger.header('Zenith Dev Server')
-    logger.log(`Project: ${project.root}`)
-    logger.log(`Pages: ${project.pagesDir}`)
+    const clients = new Set<ServerWebSocket<unknown>>()
+
+    // Branded Startup Panel
+    brand.showServerPanel({
+        project: project.root,
+        pages: project.pagesDir,
+        url: `http://localhost:${port}`,
+        hmr: true,
+        mode: 'In-memory compilation'
+    })
 
     // File extensions that should be served as static assets
     const STATIC_EXTENSIONS = new Set([
@@ -48,35 +47,21 @@ export async function dev(options: DevOptions = {}): Promise<void> {
     ])
 
     /**
-     * Generate the shared runtime JavaScript
-     */
-    function generateRuntimeJS(): string {
-        return generateBundleJS()
-    }
-
-    /**
      * Compile a .zen page in memory
      */
     function compilePageInMemory(pagePath: string): CompiledPage | null {
         try {
             const layoutsDir = path.join(pagesDir, '../layouts')
             const layouts = discoverLayouts(layoutsDir)
-
             const source = fs.readFileSync(pagePath, 'utf-8')
 
-            // Find suitable layout
             let processedSource = source
             let layoutToUse = layouts.get('DefaultLayout')
 
-            if (layoutToUse) {
-                processedSource = processLayout(source, layoutToUse)
-            }
+            if (layoutToUse) processedSource = processLayout(source, layoutToUse)
 
             const result = compileZenSource(processedSource, pagePath)
-
-            if (!result.finalized) {
-                throw new Error('Compilation failed: No finalized output')
-            }
+            if (!result.finalized) throw new Error('Compilation failed')
 
             const routeDef = generateRouteDefinition(pagePath, pagesDir)
 
@@ -88,110 +73,138 @@ export async function dev(options: DevOptions = {}): Promise<void> {
                 lastModified: Date.now()
             }
         } catch (error: any) {
-            logger.error(`Compilation error for ${pagePath}: ${error.message}`)
+            logger.error(`Compilation error: ${error.message}`)
             return null
         }
     }
 
-    /**
-     * Generate full HTML page from compiled output
-     */
-    function generateDevHTML(page: CompiledPage): string {
-        const runtimeTag = `<script src="/runtime.js"></script>`
-        const scriptTag = `<script>\n${page.script}\n</script>`
-        const allScripts = `${runtimeTag}\n${scriptTag}`
+    // Set up file watching for HMR
+    const watcher = fs.watch(path.join(pagesDir, '..'), { recursive: true }, (event, filename) => {
+        if (!filename) return
 
-        if (page.html.includes('</body>')) {
-            return page.html.replace('</body>', `${allScripts}\n</body>`)
+        if (filename.endsWith('.zen')) {
+            logger.hmr('Page', filename)
+            // Broadcast reload
+            for (const client of clients) {
+                client.send(JSON.stringify({ type: 'reload' }))
+            }
+        } else if (filename.endsWith('.css')) {
+            logger.hmr('CSS', filename)
+            for (const client of clients) {
+                client.send(JSON.stringify({
+                    type: 'style-update',
+                    url: filename.includes('global.css') ? '/styles/global.css' : `/${filename}`
+                }))
+            }
         }
-
-        return `${page.html}\n${allScripts}`
-    }
-
-    /**
-     * Find .zen page file for a given route
-     */
-    function findPageForRoute(route: string): string | null {
-        const exactPath = path.join(pagesDir, route === '/' ? 'index.zen' : `${route.slice(1)}.zen`)
-        if (fs.existsSync(exactPath)) return exactPath
-
-        const indexPath = path.join(pagesDir, route === '/' ? 'index.zen' : `${route.slice(1)}/index.zen`)
-        if (fs.existsSync(indexPath)) return indexPath
-
-        return null
-    }
-
-    const cachedRuntimeJS = generateRuntimeJS()
+    })
 
     const server = serve({
         port,
-        async fetch(req) {
+        fetch(req, server) {
+            const startTime = performance.now()
             const url = new URL(req.url)
             const pathname = url.pathname
             const ext = path.extname(pathname).toLowerCase()
 
-            if (pathname === '/runtime.js' || pathname === '/assets/bundle.js') {
-                return new Response(cachedRuntimeJS, {
-                    headers: {
-                        'Content-Type': 'application/javascript; charset=utf-8',
-                        'Cache-Control': 'no-cache'
-                    }
-                })
+            // Upgrade to WebSocket for HMR
+            if (pathname === '/hmr') {
+                const upgraded = server.upgrade(req)
+                if (upgraded) return undefined
             }
 
-            if (pathname === '/assets/styles.css' || pathname === '/styles/global.css' || pathname === '/app/styles/global.css') {
+            // Handle Zenith assets
+            if (pathname === '/runtime.js') {
+                const response = new Response(generateBundleJS(), {
+                    headers: { 'Content-Type': 'application/javascript; charset=utf-8' }
+                })
+                logger.route('GET', pathname, 200, Math.round(performance.now() - startTime), 0, Math.round(performance.now() - startTime))
+                return response
+            }
+
+            if (pathname === '/styles/global.css') {
                 const globalCssPath = path.join(pagesDir, '../styles/global.css')
                 if (fs.existsSync(globalCssPath)) {
                     const css = fs.readFileSync(globalCssPath, 'utf-8')
-                    return new Response(css, {
-                        headers: { 'Content-Type': 'text/css; charset=utf-8' }
-                    })
+                    const response = new Response(css, { headers: { 'Content-Type': 'text/css' } })
+                    logger.route('GET', pathname, 200, Math.round(performance.now() - startTime), 0, Math.round(performance.now() - startTime))
+                    return response
                 }
             }
 
+            // Static files
             if (STATIC_EXTENSIONS.has(ext)) {
                 const publicPath = path.join(pagesDir, '../public', pathname)
-                const distPath = path.join(pagesDir, '../dist', pathname)
-                const appRelativePath = path.join(pagesDir, '..', pathname)
-
-                for (const filePath of [publicPath, distPath, appRelativePath]) {
-                    const file = Bun.file(filePath)
-                    if (await file.exists()) {
-                        return new Response(file)
-                    }
+                if (fs.existsSync(publicPath)) {
+                    const response = new Response(Bun.file(publicPath))
+                    logger.route('GET', pathname, 200, Math.round(performance.now() - startTime), 0, Math.round(performance.now() - startTime))
+                    return response
                 }
-                return new Response('Not found', { status: 404 })
             }
 
-            const pagePath = findPageForRoute(pathname)
+            // Zenith Pages
+            const pagePath = findPageForRoute(pathname, pagesDir)
             if (pagePath) {
+                const compileStart = performance.now()
                 let cached = pageCache.get(pagePath)
                 const stat = fs.statSync(pagePath)
 
                 if (!cached || stat.mtimeMs > cached.lastModified) {
-                    const compiled = compilePageInMemory(pagePath)
-                    if (compiled) {
-                        pageCache.set(pagePath, compiled)
-                        cached = compiled
-                    }
+                    cached = compilePageInMemory(pagePath) || undefined
+                    if (cached) pageCache.set(pagePath, cached)
                 }
+                const compileEnd = performance.now()
 
                 if (cached) {
+                    const renderStart = performance.now()
                     const html = generateDevHTML(cached)
-                    return new Response(html, {
-                        headers: { 'Content-Type': 'text/html; charset=utf-8' }
-                    })
+                    const renderEnd = performance.now()
+
+                    const totalTime = Math.round(performance.now() - startTime)
+                    const compileTime = Math.round(compileEnd - compileStart)
+                    const renderTime = Math.round(renderEnd - renderStart)
+
+                    logger.route('GET', pathname, 200, totalTime, compileTime, renderTime)
+                    return new Response(html, { headers: { 'Content-Type': 'text/html' } })
                 }
             }
 
+            logger.route('GET', pathname, 404, Math.round(performance.now() - startTime), 0, 0)
             return new Response('Not Found', { status: 404 })
+        },
+        websocket: {
+            open(ws) {
+                clients.add(ws)
+            },
+            close(ws) {
+                clients.delete(ws)
+            },
+            message() { }
         }
     })
 
-    logger.success(`Server running at http://localhost:${server.port}`)
-    logger.info('• In-memory compilation active')
-    logger.info('• Auto-recompile on file changes')
-    logger.info('Press Ctrl+C to stop')
+    process.on('SIGINT', () => {
+        watcher.close()
+        server.stop()
+        process.exit(0)
+    })
 
     await new Promise(() => { })
+}
+
+function findPageForRoute(route: string, pagesDir: string): string | null {
+    const exactPath = path.join(pagesDir, route === '/' ? 'index.zen' : `${route.slice(1)}.zen`)
+    if (fs.existsSync(exactPath)) return exactPath
+    const indexPath = path.join(pagesDir, route === '/' ? 'index.zen' : `${route.slice(1)}/index.zen`)
+    if (fs.existsSync(indexPath)) return indexPath
+    return null
+}
+
+function generateDevHTML(page: CompiledPage): string {
+    const runtimeTag = `<script src="/runtime.js"></script>`
+    const scriptTag = `<script>\n${page.script}\n</script>`
+    const allScripts = `${runtimeTag}\n${scriptTag}`
+    return page.html.includes('</body>')
+        ? page.html.replace('</body>', `${allScripts}\n</body>`)
+        : `${page.html}\n${allScripts}`
 }

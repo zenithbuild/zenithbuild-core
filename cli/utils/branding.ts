@@ -151,3 +151,28 @@ ${pc.cyan('│')}                                                         ${pc.c
 ${pc.cyan('└─────────────────────────────────────────────────────────┘')}
 `)
 }
+
+/**
+ * Show dev server startup panel
+ */
+export function showServerPanel(options: {
+    project: string,
+    pages: string,
+    url: string,
+    hmr: boolean,
+    mode: string
+}) {
+    console.clear()
+    console.log(LOGO_COMPACT)
+    console.log(`${pc.cyan('────────────────────────────────────────────────────────────')}`)
+    console.log(` ${pc.magenta('🟣 Zenith Dev Server')}`)
+    console.log(`${pc.cyan('────────────────────────────────────────────────────────────')}`)
+    console.log(` ${pc.bold('Project:')}  ${pc.dim(options.project)}`)
+    console.log(` ${pc.bold('Pages:')}    ${pc.dim(options.pages)}`)
+    console.log(` ${pc.bold('Mode:')}     ${pc.cyan(options.mode)} ${pc.dim(`(${options.hmr ? 'HMR enabled' : 'HMR disabled'})`)}`)
+    console.log(`${pc.cyan('────────────────────────────────────────────────────────────')}`)
+    console.log(` ${pc.bold('Server:')}   ${pc.cyan(pc.underline(options.url))} ${pc.dim('(clickable)')}`)
+    console.log(` ${pc.bold('Hot Reload:')} ${options.hmr ? pc.green('Enabled ✅') : pc.red('Disabled ✗')}`)
+    console.log(`${pc.cyan('────────────────────────────────────────────────────────────')}`)
+    console.log(` ${pc.dim('Press Ctrl+C to stop')}\n`)
+}

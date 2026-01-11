@@ -17,7 +17,7 @@
  * This is served as an external JS file, not inlined
  */
 export function generateBundleJS(): string {
-    return `/*!
+  return `/*!
  * Zenith Runtime v0.1.0
  * Shared client-side runtime for hydration and reactivity
  */
@@ -394,6 +394,51 @@ export function generateBundleJS(): string {
   global.onMount = zenOnMount;
   global.onUnmount = zenOnUnmount;
   
+  // ============================================
+  // HMR Client (Development Only)
+  // ============================================
+  
+  if (typeof window !== 'undefined' && (location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
+    let socket;
+    function connectHMR() {
+      const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      socket = new WebSocket(protocol + '//' + location.host + '/hmr');
+      
+      socket.onmessage = function(event) {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === 'reload') {
+            console.log('[Zenith] HMR: Reloading page...');
+            location.reload();
+          } else if (data.type === 'style-update') {
+            console.log('[Zenith] HMR: Updating style ' + data.url);
+            const links = document.querySelectorAll('link[rel="stylesheet"]');
+            for (let i = 0; i < links.length; i++) {
+              const link = links[i];
+              const url = new URL(link.href);
+              if (url.pathname === data.url) {
+                link.href = data.url + '?t=' + Date.now();
+                break;
+              }
+            }
+          }
+        } catch (e) {
+          console.error('[Zenith] HMR Error:', e);
+        }
+      };
+      
+      socket.onclose = function() {
+        console.log('[Zenith] HMR: Connection closed. Retrying in 2s...');
+        setTimeout(connectHMR, 2000);
+      };
+    }
+    
+    // Connect unless explicitly disabled
+    if (!window.__ZENITH_NO_HMR__) {
+      connectHMR();
+    }
+  }
+  
 })(typeof window !== 'undefined' ? window : this);
 `
 }
@@ -403,14 +448,14 @@ export function generateBundleJS(): string {
  * For production builds
  */
 export function generateMinifiedBundleJS(): string {
-    // For now, return non-minified
-    // TODO: Add minification via terser or similar
-    return generateBundleJS()
+  // For now, return non-minified
+  // TODO: Add minification via terser or similar
+  return generateBundleJS()
 }
 
 /**
  * Get bundle version for cache busting
  */
 export function getBundleVersion(): string {
-    return '0.1.0'
+  return '0.1.0'
 }
