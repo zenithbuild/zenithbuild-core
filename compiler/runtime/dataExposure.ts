@@ -7,6 +7,7 @@
 
 import type { ExpressionIR } from '../ir/types'
 import { CompilerError } from '../errors/compilerError'
+import { transformExpressionJSX } from '../transform/expressionTransformer'
 
 /**
  * Data dependency information for an expression
@@ -263,10 +264,17 @@ export function generateExplicitExpressionWrapper(
     ? `const __ctx = Object.assign({}, ${contextParts.join(', ')});\n      with (__ctx) {`
     : 'with (state) {'
 
-  const escapedCode = code.replace(/`/g, '\\`').replace(/\$/g, '\\$')
+  // Escape the code for use in a single-line comment (replace newlines with spaces)
+  const commentCode = code.replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').substring(0, 100)
+
+  // JSON.stringify the code for error messages (properly escapes quotes, newlines, etc.)
+  const jsonEscapedCode = JSON.stringify(code)
+
+  // Transform JSX
+  const transformedCode = transformExpressionJSX(code)
 
   return `
-  // Expression: ${escapedCode}
+  // Expression: ${commentCode}${code.length > 100 ? '...' : ''}
   // Dependencies: ${JSON.stringify({
     loaderData: dependencies.usesLoaderData,
     props: dependencies.usesProps,
@@ -276,10 +284,10 @@ export function generateExplicitExpressionWrapper(
   const ${id} = (${paramList}) => {
     try {
       ${contextCode}
-        return ${code};
+        return ${transformedCode};
       }
     } catch (e) {
-      console.warn('[Zenith] Expression evaluation error:', ${JSON.stringify(code)}, e);
+      console.warn('[Zenith] Expression evaluation error:', ${jsonEscapedCode}, e);
       return undefined;
     }
   };`

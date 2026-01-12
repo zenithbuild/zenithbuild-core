@@ -45,27 +45,32 @@ export function generateHydrationRuntime(): string {
       // Handle different result types
       if (result === null || result === undefined || result === false) {
         node.textContent = '';
-      } else if (typeof result === 'string' || typeof result === 'number') {
+      } else if (typeof result === 'string') {
+        if (result.trim().startsWith('<')) {
+          // Render as HTML
+          node.innerHTML = result;
+        } else {
+          node.textContent = result;
+        }
+      } else if (typeof result === 'number') {
         node.textContent = String(result);
       } else if (result instanceof Node) {
-        // Replace node with result node
-        if (node.parentNode) {
-          node.parentNode.replaceChild(result, node);
-        }
+        // Clear node and append result
+        node.innerHTML = '';
+        node.appendChild(result);
       } else if (Array.isArray(result)) {
         // Handle array results (for map expressions)
-        if (node.parentNode) {
-          const fragment = document.createDocumentFragment();
-          for (let i = 0; i < result.length; i++) {
-            const item = result[i];
-            if (item instanceof Node) {
-              fragment.appendChild(item);
-            } else {
-              fragment.appendChild(document.createTextNode(String(item)));
-            }
+        node.innerHTML = '';
+        const fragment = document.createDocumentFragment();
+        for (let i = 0; i < result.length; i++) {
+          const item = result[i];
+          if (item instanceof Node) {
+            fragment.appendChild(item);
+          } else {
+            fragment.appendChild(document.createTextNode(String(item)));
           }
-          node.parentNode.replaceChild(fragment, node);
         }
+        node.appendChild(fragment);
       } else {
         node.textContent = String(result);
       }

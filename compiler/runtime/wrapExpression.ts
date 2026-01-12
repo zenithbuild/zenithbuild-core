@@ -12,6 +12,8 @@ import type { ExpressionDataDependencies } from './dataExposure'
 import { generateExplicitExpressionWrapper } from './dataExposure'
 import { wrapExpressionWithLoopContext } from './wrapExpressionWithLoop'
 
+import { transformExpressionJSX } from '../transform/expressionTransformer'
+
 /**
  * Wrap an expression into a runtime function with explicit data arguments
  * 
@@ -23,29 +25,38 @@ export function wrapExpression(
   dependencies?: ExpressionDataDependencies,
   loopContext?: LoopContext  // Phase 7: Loop context for map expressions
 ): string {
+  const { id, code } = expr
+
   // Phase 7: If loop context is provided, use loop-aware wrapper
   if (loopContext && loopContext.variables.length > 0) {
     return wrapExpressionWithLoopContext(expr, loopContext, dependencies)
   }
-  
+
   // If dependencies are provided, use explicit wrapper (Phase 6)
   if (dependencies) {
     return generateExplicitExpressionWrapper(expr, dependencies)
   }
-  
+
   // Fallback to legacy wrapper (backwards compatibility)
-  const { id, code } = expr
-  const escapedCode = code.replace(/`/g, '\\`').replace(/\$/g, '\\$')
-  
+  // Transform JSX-like tags inside expression code
+  const transformedCode = transformExpressionJSX(code)
+  // Escape the code for use in a single-line comment (replace newlines with spaces)
+  const commentCode = code.replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').substring(0, 100)
+  const jsonEscapedCode = JSON.stringify(code)
+
   return `
-  // Expression: ${escapedCode}
+  // Expression: ${commentCode}${code.length > 100 ? '...' : ''}
   const ${id} = (state) => {
     try {
+      // Expose zenith helpers for JSX and content
+      const __zenith = window.__zenith || {};
+      const zenCollection = __zenith.zenCollection || ((name) => ({ get: () => [] }));
+      
       with (state) {
-        return ${code};
+        return ${transformedCode};
       }
     } catch (e) {
-      console.warn('[Zenith] Expression evaluation error:', ${JSON.stringify(code)}, e);
+      console.warn('[Zenith] Expression evaluation error:', ${jsonEscapedCode}, e);
       return undefined;
     }
   };`
@@ -65,19 +76,19 @@ export function generateExpressionWrappers(
   if (expressions.length === 0) {
     return ''
   }
-  
+
   if (dependencies && dependencies.length === expressions.length) {
     // Use explicit wrappers with dependencies and optional loop contexts
     return expressions
       .map((expr, index) => {
-        const loopCtx = loopContexts && loopContexts[index] !== undefined 
-          ? loopContexts[index] 
+        const loopCtx = loopContexts && loopContexts[index] !== undefined
+          ? loopContexts[index]
           : undefined
         return wrapExpression(expr, dependencies[index], loopCtx)
       })
       .join('\n')
   }
-  
+
   // Fallback to legacy wrappers (no dependencies, no loop contexts)
   return expressions.map(expr => wrapExpression(expr)).join('\n')
 }

@@ -9,6 +9,10 @@ import { discoverLayouts } from '../../compiler/discovery/layouts'
 import { processLayout } from '../../compiler/transform/layoutProcessor'
 import { generateRouteDefinition } from '../../router/manifest'
 import { generateBundleJS } from '../../runtime/bundle-generator'
+import { loadContent } from '../utils/content'
+import { loadZenithConfig } from '../../core/config/loader'
+import { PluginRegistry, createPluginContext } from '../../core/plugins/registry'
+import type { ContentItem } from '../../core/config/types'
 
 export interface DevOptions {
     port?: number
@@ -28,6 +32,40 @@ export async function dev(options: DevOptions = {}): Promise<void> {
     const project = requireProject()
     const port = options.port || parseInt(process.env.PORT || '3000', 10)
     const pagesDir = project.pagesDir
+    const rootDir = project.root
+    const contentDir = path.join(rootDir, 'content')
+
+    // Load zenith.config.ts if present
+    const config = await loadZenithConfig(rootDir)
+    const registry = new PluginRegistry()
+
+    console.log('[Zenith] Config plugins:', config.plugins?.length ?? 0)
+
+    // Register plugins from config
+    for (const plugin of config.plugins || []) {
+        console.log('[Zenith] Registering plugin:', plugin.name)
+        registry.register(plugin)
+    }
+
+    // Initialize content data
+    let contentData: Record<string, ContentItem[]> = {}
+
+    // Initialize plugins with context
+    const hasContentPlugin = registry.has('zenith-content')
+    console.log('[Zenith] Has zenith-content plugin:', hasContentPlugin)
+
+    if (hasContentPlugin) {
+        await registry.initAll(createPluginContext(rootDir, (data) => {
+            console.log('[Zenith] Content plugin set data, collections:', Object.keys(data))
+            contentData = data
+        }))
+    } else {
+        // Fallback to legacy content loading if no content plugin configured
+        console.log('[Zenith] Using legacy content loading from:', contentDir)
+        contentData = loadContent(contentDir)
+    }
+
+    console.log('[Zenith] Content collections loaded:', Object.keys(contentData))
 
     const clients = new Set<ServerWebSocket<unknown>>()
 
@@ -96,6 +134,19 @@ export async function dev(options: DevOptions = {}): Promise<void> {
                     url: filename.includes('global.css') ? '/styles/global.css' : `/${filename}`
                 }))
             }
+        } else if (filename.startsWith('content') || filename.includes('zenith-docs')) {
+            logger.hmr('Content', filename)
+            // Reinitialize content plugin to reload data
+            if (registry.has('zenith-content')) {
+                registry.initAll(createPluginContext(rootDir, (data) => {
+                    contentData = data
+                }))
+            } else {
+                contentData = loadContent(contentDir)
+            }
+            for (const client of clients) {
+                client.send(JSON.stringify({ type: 'reload' }))
+            }
         }
     })
 
@@ -157,7 +208,7 @@ export async function dev(options: DevOptions = {}): Promise<void> {
 
                 if (cached) {
                     const renderStart = performance.now()
-                    const html = generateDevHTML(cached)
+                    const html = generateDevHTML(cached, contentData)
                     const renderEnd = performance.now()
 
                     const totalTime = Math.round(performance.now() - startTime)
@@ -200,10 +251,11 @@ function findPageForRoute(route: string, pagesDir: string): string | null {
     return null
 }
 
-function generateDevHTML(page: CompiledPage): string {
+function generateDevHTML(page: CompiledPage, contentData: any = {}): string {
     const runtimeTag = `<script src="/runtime.js"></script>`
+    const contentTag = `<script>window.__ZENITH_CONTENT__ = ${JSON.stringify(contentData)};</script>`
     const scriptTag = `<script>\n${page.script}\n</script>`
-    const allScripts = `${runtimeTag}\n${scriptTag}`
+    const allScripts = `${runtimeTag}\n${contentTag}\n${scriptTag}`
     return page.html.includes('</body>')
         ? page.html.replace('</body>', `${allScripts}\n</body>`)
         : `${page.html}\n${allScripts}`

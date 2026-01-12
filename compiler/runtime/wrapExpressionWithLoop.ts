@@ -9,6 +9,7 @@
 
 import type { ExpressionIR, LoopContext } from '../ir/types'
 import type { ExpressionDataDependencies } from './dataExposure'
+import { transformExpressionJSX } from '../transform/expressionTransformer'
 
 /**
  * Generate an expression wrapper that accepts loop context
@@ -59,6 +60,12 @@ export function wrapExpressionWithLoopContext(
     ? `const __ctx = Object.assign({}, ${contextMerge.join(', ')});`
     : `const __ctx = loopContext || {};`
 
+  // Transform JSX
+  // The fix for 'undefined' string assignment is applied within transformExpressionJSX
+  // by ensuring that any remaining text is properly quoted as a string literal
+  // or recognized as an existing h() call.
+  const transformedCode = transformExpressionJSX(code)
+
   return `
   // Expression with loop context: ${escapedCode}
   // Loop variables: ${loopContext.variables.join(', ')}
@@ -66,7 +73,7 @@ export function wrapExpressionWithLoopContext(
     try {
       ${contextObject}
       with (__ctx) {
-        return ${code};
+        return ${transformedCode};
       }
     } catch (e) {
       console.warn('[Zenith] Expression evaluation error for "${escapedCode}":', e);
@@ -74,4 +81,3 @@ export function wrapExpressionWithLoopContext(
     }
   };`
 }
-

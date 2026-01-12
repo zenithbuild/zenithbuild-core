@@ -50,7 +50,7 @@ export function transformNode(
           loopContext: activeLoopContext  // Phase 7: Attach loop context to binding
         })
 
-        return `<span data-zen-text="${bindingId}"></span>`
+        return `<span data-zen-text="${bindingId}" style="display: contents;"></span>`
       }
 
       case 'element': {

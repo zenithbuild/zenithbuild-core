@@ -62,6 +62,12 @@ export function transformStateDeclarations(script: string): string {
     // Remove zenith/runtime imports
     transformed = transformed.replace(/import\s+{[^}]+}\s+from\s+['"]zenith\/runtime['"]\s*;?[ \t]*/g, '')
 
+    // Transform zenith:content imports to global lookups
+    transformed = transformed.replace(
+        /import\s*{\s*([^}]+)\s*}\s*from\s*['"]zenith:content['"]\s*;?/g,
+        (_, imports) => `const { ${imports.trim()} } = window.__zenith;`
+    )
+
     return transformed.trim()
 }
 

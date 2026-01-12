@@ -30,7 +30,7 @@ export function header(title: string): void {
     console.log(`\n${pc.bold(pc.cyan(title))}\n`)
 }
 
-export function hmr(type: 'CSS' | 'Page' | 'Layout', path: string): void {
+export function hmr(type: 'CSS' | 'Page' | 'Layout' | 'Content', path: string): void {
     console.log(`${pc.magenta('[HMR]')} ${pc.bold(type)} updated: ${pc.dim(path)}`)
 }
 

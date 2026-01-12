@@ -296,6 +296,57 @@ export function generateBundleJS(): string {
     return expressionRegistry.get(id);
   }
   
+  function updateNode(node, exprId, pageState) {
+    const expr = getExpression(exprId);
+    if (!expr) return;
+    
+    zenEffect(function() {
+      const result = expr(pageState);
+      
+      if (node.hasAttribute('data-zen-text')) {
+        // Handle complex text/children results
+        if (result === null || result === undefined || result === false) {
+          node.textContent = '';
+        } else if (typeof result === 'string') {
+          if (result.trim().startsWith('<') && result.trim().endsWith('>')) {
+            node.innerHTML = result;
+          } else {
+            node.textContent = result;
+          }
+        } else if (result instanceof Node) {
+          node.innerHTML = '';
+          node.appendChild(result);
+        } else if (Array.isArray(result)) {
+          node.innerHTML = '';
+          const fragment = document.createDocumentFragment();
+          result.flat(Infinity).forEach(item => {
+            if (item instanceof Node) fragment.appendChild(item);
+            else if (item != null && item !== false) fragment.appendChild(document.createTextNode(String(item)));
+          });
+          node.appendChild(fragment);
+        } else {
+          node.textContent = String(result);
+        }
+      } else {
+        // Attribute update
+        const attrNames = ['class', 'style', 'src', 'href', 'disabled', 'checked'];
+        for (const attr of attrNames) {
+          if (node.hasAttribute('data-zen-attr-' + attr)) {
+            if (attr === 'class' || attr === 'className') {
+              node.className = String(result || '');
+            } else if (attr === 'disabled' || attr === 'checked') {
+              if (result) node.setAttribute(attr, '');
+              else node.removeAttribute(attr);
+            } else {
+              if (result != null && result !== false) node.setAttribute(attr, String(result));
+              else node.removeAttribute(attr);
+            }
+          }
+        }
+      }
+    });
+  }
+
   /**
    * Hydrate a page with reactive bindings
    * Called after page HTML is in DOM
@@ -303,49 +354,209 @@ export function generateBundleJS(): string {
   function zenithHydrate(pageState, container) {
     container = container || document;
     
-    // Find all data-zen-bind elements
-    const bindings = container.querySelectorAll('[data-zen-bind]');
+    // Find all text expression placeholders
+    const textNodes = container.querySelectorAll('[data-zen-text]');
+    textNodes.forEach(el => updateNode(el, el.getAttribute('data-zen-text'), pageState));
     
-    bindings.forEach(function(el) {
-      const bindType = el.getAttribute('data-zen-bind');
-      const exprId = el.getAttribute('data-zen-expr');
-      
-      if (bindType === 'text' && exprId) {
-        const expr = getExpression(exprId);
-        if (expr) {
-          zenEffect(function() {
-            el.textContent = expr(pageState);
-          });
-        }
-      } else if (bindType === 'attr') {
-        const attrName = el.getAttribute('data-zen-attr');
-        const expr = getExpression(exprId);
-        if (expr && attrName) {
-          zenEffect(function() {
-            el.setAttribute(attrName, expr(pageState));
-          });
-        }
-      }
+    // Find all attribute expression placeholders
+    const attrNodes = container.querySelectorAll('[data-zen-attr-class], [data-zen-attr-style], [data-zen-attr-src], [data-zen-attr-href]');
+    attrNodes.forEach(el => {
+      const attrMatch = Array.from(el.attributes).find(a => a.name.startsWith('data-zen-attr-'));
+      if (attrMatch) updateNode(el, attrMatch.value, pageState);
     });
     
     // Wire up event handlers
-    const handlers = container.querySelectorAll('[data-zen-event]');
-    handlers.forEach(function(el) {
-      const eventData = el.getAttribute('data-zen-event');
-      if (eventData) {
-        const parts = eventData.split(':');
-        const eventType = parts[0];
-        const handlerName = parts[1];
-        if (handlerName && global[handlerName]) {
-          el.addEventListener(eventType, global[handlerName]);
+    const eventTypes = ['click', 'change', 'input', 'submit', 'focus', 'blur', 'keyup', 'keydown'];
+    eventTypes.forEach(eventType => {
+      const elements = container.querySelectorAll('[data-zen-' + eventType + ']');
+      elements.forEach(el => {
+        const handlerName = el.getAttribute('data-zen-' + eventType);
+        if (handlerName && (global[handlerName] || getExpression(handlerName))) {
+          el.addEventListener(eventType, function(e) {
+            const handler = global[handlerName] || getExpression(handlerName);
+            if (typeof handler === 'function') handler(e, el);
+          });
         }
-      }
+      });
     });
     
     // Trigger mount
     triggerMount();
   }
   
+  // ============================================
+  // zenith:content - Content Engine
+  // ============================================
+
+  const schemaRegistry = new Map();
+  const builtInEnhancers = {
+    readTime: (item) => {
+      const wordsPerMinute = 200;
+      const text = item.content || '';
+      const wordCount = text.split(/\\s+/).length;
+      const minutes = Math.ceil(wordCount / wordsPerMinute);
+      return Object.assign({}, item, { readTime: minutes + ' min' });
+    },
+    wordCount: (item) => {
+      const text = item.content || '';
+      const wordCount = text.split(/\\s+/).length;
+      return Object.assign({}, item, { wordCount: wordCount });
+    }
+  };
+
+  async function applyEnhancers(item, enhancers) {
+    let enrichedItem = Object.assign({}, item);
+    for (const enhancer of enhancers) {
+      if (typeof enhancer === 'string') {
+        const fn = builtInEnhancers[enhancer];
+        if (fn) enrichedItem = await fn(enrichedItem);
+      } else if (typeof enhancer === 'function') {
+        enrichedItem = await enhancer(enrichedItem);
+      }
+    }
+    return enrichedItem;
+  }
+
+  class ZenCollection {
+    constructor(items) {
+      this.items = [...items];
+      this.filters = [];
+      this.sortField = null;
+      this.sortOrder = 'desc';
+      this.limitCount = null;
+      this.selectedFields = null;
+      this.enhancers = [];
+      this._groupByFolder = false;
+    }
+    where(fn) { this.filters.push(fn); return this; }
+    sortBy(field, order = 'desc') { this.sortField = field; this.sortOrder = order; return this; }
+    limit(n) { this.limitCount = n; return this; }
+    fields(f) { this.selectedFields = f; return this; }
+    enhanceWith(e) { this.enhancers.push(e); return this; }
+    groupByFolder() { this._groupByFolder = true; return this; }
+    get() {
+      let results = [...this.items];
+      for (const filter of this.filters) results = results.filter(filter);
+      if (this.sortField) {
+        results.sort((a, b) => {
+          const valA = a[this.sortField];
+          const valB = b[this.sortField];
+          if (valA < valB) return this.sortOrder === 'asc' ? -1 : 1;
+          if (valA > valB) return this.sortOrder === 'asc' ? 1 : -1;
+          return 0;
+        });
+      }
+      if (this.limitCount !== null) results = results.slice(0, this.limitCount);
+      
+      // Apply enhancers synchronously if possible
+      if (this.enhancers.length > 0) {
+        results = results.map(item => {
+          let enrichedItem = Object.assign({}, item);
+          for (const enhancer of this.enhancers) {
+            if (typeof enhancer === 'string') {
+              const fn = builtInEnhancers[enhancer];
+              if (fn) enrichedItem = fn(enrichedItem);
+            } else if (typeof enhancer === 'function') {
+              enrichedItem = enhancer(enrichedItem);
+            }
+          }
+          return enrichedItem;
+        });
+      }
+      
+      if (this.selectedFields) {
+        results = results.map(item => {
+          const newItem = {};
+          this.selectedFields.forEach(f => { newItem[f] = item[f]; });
+          return newItem;
+        });
+      }
+      
+      // Group by folder if requested
+      if (this._groupByFolder) {
+        const groups = {};
+        const groupOrder = [];
+        for (const item of results) {
+          // Extract folder from slug (e.g., "getting-started/installation" -> "getting-started")
+          const slug = item.slug || item.id || '';
+          const parts = slug.split('/');
+          const folder = parts.length > 1 ? parts[0] : 'root';
+          
+          if (!groups[folder]) {
+            groups[folder] = {
+              id: folder,
+              title: folder.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '),
+              items: []
+            };
+            groupOrder.push(folder);
+          }
+          groups[folder].items.push(item);
+        }
+        return groupOrder.map(f => groups[f]);
+      }
+      
+      return results;
+    }
+  }
+
+  function defineSchema(name, schema) { schemaRegistry.set(name, schema); }
+
+  function zenCollection(collectionName) {
+    const data = (global.__ZENITH_CONTENT__ && global.__ZENITH_CONTENT__[collectionName]) || [];
+    return new ZenCollection(data);
+  }
+
+  // Virtual DOM Helper for JSX-style expressions
+  function h(tag, props, children) {
+    const el = document.createElement(tag);
+    if (props) {
+      for (const [key, value] of Object.entries(props)) {
+        if (key.startsWith('on') && typeof value === 'function') {
+          el.addEventListener(key.slice(2).toLowerCase(), value);
+        } else if (key === 'class' || key === 'className') {
+          el.className = String(value || '');
+        } else if (key === 'style' && typeof value === 'object') {
+          Object.assign(el.style, value);
+        } else if (value != null && value !== false) {
+          el.setAttribute(key, String(value));
+        }
+      }
+    }
+    if (children != null && children !== false) {
+      // Flatten nested arrays (from .map() calls)
+      const childrenArray = Array.isArray(children) ? children.flat(Infinity) : [children];
+      for (const child of childrenArray) {
+        // Skip null, undefined, and false
+        if (child == null || child === false) continue;
+        
+        if (typeof child === 'string') {
+          // Check if string looks like HTML
+          if (child.trim().startsWith('<') && child.trim().endsWith('>')) {
+            // Render as HTML
+            const wrapper = document.createElement('div');
+            wrapper.innerHTML = child;
+            while (wrapper.firstChild) {
+              el.appendChild(wrapper.firstChild);
+            }
+          } else {
+            el.appendChild(document.createTextNode(child));
+          }
+        } else if (typeof child === 'number') {
+          el.appendChild(document.createTextNode(String(child)));
+        } else if (child instanceof Node) {
+          el.appendChild(child);
+        } else if (Array.isArray(child)) {
+          // Handle nested arrays (shouldn't happen after flat() but just in case)
+          for (const c of child) {
+            if (c instanceof Node) el.appendChild(c);
+            else if (c != null && c !== false) el.appendChild(document.createTextNode(String(c)));
+          }
+        }
+      }
+    }
+    return el;
+  }
+
   // ============================================
   // Export to window.__zenith
   // ============================================
@@ -359,6 +570,11 @@ export function generateBundleJS(): string {
     ref: zenRef,
     batch: zenBatch,
     untrack: zenUntrack,
+    // zenith:content
+    defineSchema: defineSchema,
+    zenCollection: zenCollection,
+    // Virtual DOM helper for JSX
+    h: h,
     // Lifecycle
     onMount: zenOnMount,
     onUnmount: zenOnUnmount,

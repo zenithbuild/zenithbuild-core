@@ -30,52 +30,124 @@ function stripBlocks(html: string): string {
 }
 
 /**
- * Normalize attribute expressions before parsing
- * Replaces attr={expr} with attr="__ZEN_EXPR_base64" so parse5 can parse it
- * Handles nested braces for complex expressions like props={{ title: 'Home' }}
+ * Find the end of a balanced brace expression, handling strings and template literals
+ * Returns the index after the closing brace, or -1 if unbalanced
  */
-function normalizeAttributeExpressions(html: string): { normalized: string; expressions: Map<string, string> } {
-  const exprMap = new Map<string, string>()
-  let exprCounter = 0
+function findBalancedBraceEnd(html: string, startIndex: number): number {
+  let braceCount = 1
+  let i = startIndex + 1
+  let inString = false
+  let stringChar = ''
+  let inTemplate = false
 
-  // Improved matching to handle nested braces: attr={ { foo: { bar: 1 } } }
-  let lastPos = 0
-  let normalized = ''
+  while (i < html.length && braceCount > 0) {
+    const char = html[i]
+    const prevChar = i > 0 ? html[i - 1] : ''
 
-  // Use a regex to find the start of an attribute expression: \w+={
-  const startRegex = /(\w+)=\{/g
-  let match
-
-  while ((match = startRegex.exec(html)) !== null) {
-    const attrName = match[1]
-    const startIndex = match.index + match[0].length - 1 // Index of '{'
-
-    // Find matching closing brace
-    let braceCount = 1
-    let i = startIndex + 1
-    while (i < html.length && braceCount > 0) {
-      if (html[i] === '{') braceCount++
-      else if (html[i] === '}') braceCount--
+    // Handle escape sequences
+    if (prevChar === '\\') {
       i++
+      continue
     }
 
-    if (braceCount === 0) {
-      const expr = html.substring(startIndex + 1, i - 1).trim()
-      const placeholder = `__ZEN_EXPR_${exprCounter++}`
-      exprMap.set(placeholder, expr)
-
-      normalized += html.substring(lastPos, match.index)
-      normalized += `${attrName}="${placeholder}"`
-      lastPos = i
-
-      // Update regex index to continue after the closing brace
-      startRegex.lastIndex = i
+    // Handle string literals (not inside template)
+    if (!inString && !inTemplate && (char === '"' || char === "'")) {
+      inString = true
+      stringChar = char
+      i++
+      continue
     }
+
+    if (inString && char === stringChar) {
+      inString = false
+      stringChar = ''
+      i++
+      continue
+    }
+
+    // Handle template literals
+    if (!inString && !inTemplate && char === '`') {
+      inTemplate = true
+      i++
+      continue
+    }
+
+    if (inTemplate && char === '`') {
+      inTemplate = false
+      i++
+      continue
+    }
+
+    // Handle ${} inside template literals - need to track nested braces
+    if (inTemplate && char === '$' && html[i + 1] === '{') {
+      // Skip the ${ and count as opening brace
+      i += 2
+      let templateBraceCount = 1
+      while (i < html.length && templateBraceCount > 0) {
+        if (html[i] === '{') templateBraceCount++
+        else if (html[i] === '}') templateBraceCount--
+        i++
+      }
+      continue
+    }
+
+    // Count braces only when not in strings or templates
+    if (!inString && !inTemplate) {
+      if (char === '{') braceCount++
+      else if (char === '}') braceCount--
+    }
+
+    i++
   }
 
-  normalized += html.substring(lastPos)
+  return braceCount === 0 ? i : -1
+}
 
-  return { normalized, expressions: exprMap }
+/**
+ * Normalize expressions before parsing
+ * Replaces both attr={expr} and {textExpr} with placeholders so parse5 can parse the HTML correctly
+ * without being confused by tags or braces inside expressions.
+ * 
+ * Uses balanced brace parsing to correctly handle:
+ * - String literals with braces inside
+ * - Template literals with ${} interpolations
+ * - Arrow functions with object returns
+ * - Multi-line JSX expressions
+ */
+function normalizeAllExpressions(html: string): { normalized: string; expressions: Map<string, string> } {
+  const exprMap = new Map<string, string>()
+  let exprCounter = 0
+  let result = ''
+  let lastPos = 0
+
+  for (let i = 0; i < html.length; i++) {
+    // Look for { and check if it's an expression
+    // We handle both text expressions and attribute expressions: attr={...}
+    if (html[i] === '{') {
+      const j = findBalancedBraceEnd(html, i)
+
+      if (j !== -1 && j > i + 1) {
+        const expr = html.substring(i + 1, j - 1).trim()
+
+        // Skip empty expressions
+        if (expr.length === 0) {
+          i++
+          continue
+        }
+
+        const placeholder = `__ZEN_EXPR_${exprCounter++}`
+        exprMap.set(placeholder, expr)
+
+        result += html.substring(lastPos, i)
+        result += placeholder
+        lastPos = j
+        i = j - 1
+      }
+    }
+  }
+  result += html.substring(lastPos)
+
+  return { normalized: result, expressions: exprMap }
 }
 
 
@@ -103,14 +175,15 @@ function extractExpressionsFromText(
   text: string,
   baseLocation: SourceLocation,
   expressions: ExpressionIR[],
-  loopContext?: LoopContext  // Phase 7: Loop context from parent map expressions
+  normalizedExprs: Map<string, string>,
+  loopContext?: LoopContext
 ): { processedText: string; nodes: (TextNode | ExpressionNode)[] } {
   const nodes: (TextNode | ExpressionNode)[] = []
   let processedText = ''
   let currentIndex = 0
 
-  // Match { ... } expressions (non-greedy)
-  const expressionRegex = /\{([^}]+)\}/g
+  // Match __ZEN_EXPR_N placeholders
+  const expressionRegex = /__ZEN_EXPR_\d+/g
   let match
 
   while ((match = expressionRegex.exec(text)) !== null) {
@@ -127,12 +200,13 @@ function extractExpressionsFromText(
       processedText += beforeExpr
     }
 
-    // Extract expression
-    const exprCode = (match[1] || '').trim()
+    // Resolve placeholder to original expression code
+    const placeholder = match[0]
+    const exprCode = (normalizedExprs.get(placeholder) || '').trim()
     const exprId = generateExpressionId()
     const exprLocation: SourceLocation = {
       line: baseLocation.line,
-      column: baseLocation.column + match.index + 1 // +1 for opening brace
+      column: baseLocation.column + match.index
     }
 
     const exprIR: ExpressionIR = {
@@ -142,11 +216,9 @@ function extractExpressionsFromText(
     }
     expressions.push(exprIR)
 
-    // Phase 7: Detect if this is a map expression and extract loop context
+    // Phase 7: Loop context detection and attachment
     const mapLoopContext = extractLoopContextFromExpression(exprIR)
     const activeLoopContext = mergeLoopContext(loopContext, mapLoopContext)
-
-    // Phase 7: Attach loop context if expression references loop variables
     const attachedLoopContext = shouldAttachLoopContext(exprIR, activeLoopContext)
 
     nodes.push({
@@ -156,7 +228,7 @@ function extractExpressionsFromText(
       loopContext: attachedLoopContext
     })
 
-    processedText += `{${exprCode}}` // Keep in processed text for now
+    processedText += `{${exprCode}}`
     currentIndex = match.index + match[0].length
   }
 
@@ -260,7 +332,7 @@ function parseNode(
 
     // Extract expressions from text
     // Phase 7: Pass loop context to detect map expressions and attach context
-    const { nodes } = extractExpressionsFromText(text, location, expressions, parentLoopContext)
+    const { nodes } = extractExpressionsFromText(node.value, location, expressions, normalizedExprs, parentLoopContext)
 
     // If single text node with no expressions, return it
     if (nodes.length === 1 && nodes[0] && nodes[0].type === 'text') {
@@ -375,7 +447,7 @@ function parseNode(
           // Handle text nodes that may contain expressions
           const text = child.value || ''
           const location = getLocation(child, originalHtml)
-          const { nodes: textNodes } = extractExpressionsFromText(text, location, expressions, parentLoopContext)
+          const { nodes: textNodes } = extractExpressionsFromText(text, location, expressions, normalizedExprs, parentLoopContext)
 
           // Add all nodes from text (can be multiple: text + expression + text)
           for (const textNode of textNodes) {
@@ -422,12 +494,12 @@ export function parseTemplate(html: string, filePath: string): TemplateIR {
   // Strip script and style blocks
   let templateHtml = stripBlocks(html)
 
-  // Normalize attribute expressions so parse5 can parse them
-  const { normalized, expressions: normalizedExprs } = normalizeAttributeExpressions(templateHtml)
+  // Normalize all expressions so parse5 can parse them safely
+  const { normalized, expressions: normalizedExprs } = normalizeAllExpressions(templateHtml)
   templateHtml = normalized
 
   try {
-    // Parse HTML using parseFragment (handles fragments without html/body wrapper)
+    // Parse HTML using parseFragment
     const fragment = parseFragment(templateHtml, {
       sourceCodeLocationInfo: true
     })
@@ -436,7 +508,6 @@ export function parseTemplate(html: string, filePath: string): TemplateIR {
     const nodes: TemplateNode[] = []
 
     // Parse fragment children
-    // Phase 7: Start with no loop context (top-level expressions)
     if (fragment.childNodes) {
       for (const node of fragment.childNodes) {
         const parsed = parseNode(node, templateHtml, expressions, normalizedExprs, undefined)

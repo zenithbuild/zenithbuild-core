@@ -118,20 +118,16 @@ ${parts.hydrationRuntime}
 
 ${parts.navigationRuntime}
 
-${parts.stateInitCode ? `// State initialization
-${parts.stateInitCode}` : ''}
-
 ${parts.stylesCode ? `// Style injection
 ${parts.stylesCode}` : ''}
 
-// User script code and function registration
-(function() {
-  'use strict';
-  
+// User script code - executed first to define variables needed by state initialization
 ${parts.scriptCode ? parts.scriptCode : ''}
 
 ${functionRegistrations}
-})();
+
+${parts.stateInitCode ? `// State initialization
+${parts.stateInitCode}` : ''}
 
 // Export hydration functions
 if (typeof window !== 'undefined') {

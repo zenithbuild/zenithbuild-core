@@ -358,6 +358,23 @@ function updateTextBinding(node: Element, expressionId: string, state: any): voi
         const result = expression(state);
         if (result === null || result === undefined || result === false) {
             node.textContent = '';
+        } else if (typeof result === 'string') {
+            if (result.trim().startsWith('<') && result.trim().endsWith('>')) {
+                node.innerHTML = result;
+            } else {
+                node.textContent = result;
+            }
+        } else if (result instanceof Node) {
+            node.innerHTML = '';
+            node.appendChild(result);
+        } else if (Array.isArray(result)) {
+            node.innerHTML = '';
+            const fragment = document.createDocumentFragment();
+            result.flat(Infinity).forEach(item => {
+                if (item instanceof Node) fragment.appendChild(item);
+                else if (item != null && item !== false) fragment.appendChild(document.createTextNode(String(item)));
+            });
+            node.appendChild(fragment);
         } else {
             node.textContent = String(result);
         }

@@ -19,6 +19,7 @@ import { processLayout } from "./transform/layoutProcessor"
 import { discoverPages, generateRouteDefinition } from "../router/manifest"
 import { analyzePageSource, getAnalysisSummary, getBuildOutputType, type PageAnalysis } from "./build-analyzer"
 import { generateBundleJS } from "../runtime/bundle-generator"
+import { loadContent } from "../cli/utils/content"
 
 // ============================================
 // Types
@@ -130,7 +131,7 @@ function compilePage(
  * Static pages: no JS references
  * Hydrated pages: bundle.js + page-specific JS
  */
-function generatePageHTML(page: CompiledPage, globalStyles: string): string {
+function generatePageHTML(page: CompiledPage, globalStyles: string, contentData: any): string {
     const { html, styles, analysis, routePath, pageScript } = page
 
     // Combine styles
@@ -141,6 +142,7 @@ function generatePageHTML(page: CompiledPage, globalStyles: string): string {
     let scriptTags = ''
     if (analysis.needsHydration) {
         scriptTags = `
+  <script>window.__ZENITH_CONTENT__ = ${JSON.stringify(contentData)};</script>
   <script src="/assets/bundle.js"></script>`
 
         if (pageScript) {
@@ -238,6 +240,8 @@ ${page.pageScript}
  */
 export function buildSSG(options: SSGBuildOptions): void {
     const { pagesDir, outDir, baseDir = path.dirname(pagesDir) } = options
+    const contentDir = path.join(baseDir, 'content')
+    const contentData = loadContent(contentDir)
 
     console.log('🔨 Zenith SSG Build')
     console.log(`   Pages: ${pagesDir}`)
@@ -316,7 +320,7 @@ export function buildSSG(options: SSGBuildOptions): void {
         fs.mkdirSync(pageOutDir, { recursive: true })
 
         // Generate and write HTML
-        const html = generatePageHTML(page, globalStyles)
+        const html = generatePageHTML(page, globalStyles, contentData)
         fs.writeFileSync(path.join(pageOutDir, 'index.html'), html)
 
         // Write page-specific JS if needed
@@ -347,7 +351,7 @@ export function buildSSG(options: SSGBuildOptions): void {
         if (fs.existsSync(custom404Path)) {
             try {
                 const compiled = compilePage(custom404Path, pagesDir, baseDir)
-                const html = generatePageHTML(compiled, globalStyles)
+                const html = generatePageHTML(compiled, globalStyles, contentData)
                 fs.writeFileSync(path.join(outDir, '404.html'), html)
                 console.log('📦 Generated 404.html (custom)')
                 has404 = true
