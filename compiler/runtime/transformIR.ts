@@ -197,8 +197,8 @@ if (typeof window !== 'undefined') {
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', autoHydrate);
   } else {
-    // DOM already loaded, run on next tick to ensure all scripts are executed
-    setTimeout(autoHydrate, 0);
+    // DOM already loaded, hydrate immediately
+    autoHydrate();
   }
 })();
 `
