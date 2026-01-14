@@ -20,6 +20,7 @@ import { discoverPages, generateRouteDefinition } from "../router/manifest"
 import { analyzePageSource, getAnalysisSummary, getBuildOutputType, type PageAnalysis } from "./build-analyzer"
 import { generateBundleJS } from "../runtime/bundle-generator"
 import { loadContent } from "../cli/utils/content"
+import { compileCss, resolveGlobalsCss } from "./css"
 
 // ============================================
 // Types
@@ -292,12 +293,23 @@ export function buildSSG(options: SSGBuildOptions): void {
 
     console.log('')
 
-    // Load global styles
+    // Compile global styles (Tailwind CSS)
     let globalStyles = ''
-    const globalCssPath = path.join(baseDir, 'styles', 'global.css')
-    if (fs.existsSync(globalCssPath)) {
-        globalStyles = fs.readFileSync(globalCssPath, 'utf-8')
-        console.log('📦 Loaded global.css')
+    const globalsCssPath = resolveGlobalsCss(baseDir)
+    if (globalsCssPath) {
+        console.log('📦 Compiling CSS:', path.relative(baseDir, globalsCssPath))
+        const cssOutputPath = path.join(outDir, 'assets', 'styles.css')
+        const result = compileCss({
+            input: globalsCssPath,
+            output: cssOutputPath,
+            minify: true
+        })
+        if (result.success) {
+            globalStyles = result.css
+            console.log(`📦 Generated assets/styles.css (${result.duration}ms)`)
+        } else {
+            console.error('❌ CSS compilation failed:', result.error)
+        }
     }
 
     // Write bundle.js if any pages need hydration
@@ -305,12 +317,6 @@ export function buildSSG(options: SSGBuildOptions): void {
         const bundleJS = generateBundleJS()
         fs.writeFileSync(path.join(outDir, 'assets', 'bundle.js'), bundleJS)
         console.log('📦 Generated assets/bundle.js')
-    }
-
-    // Write global styles
-    if (globalStyles) {
-        fs.writeFileSync(path.join(outDir, 'assets', 'styles.css'), globalStyles)
-        console.log('📦 Generated assets/styles.css')
     }
 
     // Write each page

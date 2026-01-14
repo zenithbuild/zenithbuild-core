@@ -13,6 +13,7 @@ import { loadContent } from '../utils/content'
 import { loadZenithConfig } from '../../core/config/loader'
 import { PluginRegistry, createPluginContext } from '../../core/plugins/registry'
 import type { ContentItem } from '../../core/config/types'
+import { compileCssAsync, resolveGlobalsCss } from '../../compiler/css'
 
 export interface DevOptions {
     port?: number
@@ -67,6 +68,23 @@ export async function dev(options: DevOptions = {}): Promise<void> {
 
     console.log('[Zenith] Content collections loaded:', Object.keys(contentData))
 
+    // ============================================
+    // CSS Compilation (Compiler-Owned)
+    // ============================================
+    const globalsCssPath = resolveGlobalsCss(rootDir)
+    let compiledCss = ''
+
+    if (globalsCssPath) {
+        console.log('[Zenith] Compiling CSS:', path.relative(rootDir, globalsCssPath))
+        const cssResult = await compileCssAsync({ input: globalsCssPath, output: ':memory:' })
+        if (cssResult.success) {
+            compiledCss = cssResult.css
+            console.log(`[Zenith] CSS compiled in ${cssResult.duration}ms`)
+        } else {
+            console.error('[Zenith] CSS compilation failed:', cssResult.error)
+        }
+    }
+
     const clients = new Set<ServerWebSocket<unknown>>()
 
     // Branded Startup Panel
@@ -120,22 +138,37 @@ export async function dev(options: DevOptions = {}): Promise<void> {
     }
 
     // Set up file watching for HMR
-    const watcher = fs.watch(path.join(pagesDir, '..'), { recursive: true }, (event, filename) => {
+    const watcher = fs.watch(path.join(pagesDir, '..'), { recursive: true }, async (event, filename) => {
         if (!filename) return
 
         if (filename.endsWith('.zen')) {
             logger.hmr('Page', filename)
-            // Broadcast reload
+            // Recompile CSS for new Tailwind classes in .zen files
+            if (globalsCssPath) {
+                const cssResult = await compileCssAsync({ input: globalsCssPath, output: ':memory:' })
+                if (cssResult.success) {
+                    compiledCss = cssResult.css
+                    // Notify clients of CSS update
+                    for (const client of clients) {
+                        client.send(JSON.stringify({ type: 'style-update', url: '/assets/styles.css' }))
+                    }
+                }
+            }
+            // Broadcast page reload
             for (const client of clients) {
                 client.send(JSON.stringify({ type: 'reload' }))
             }
         } else if (filename.endsWith('.css')) {
             logger.hmr('CSS', filename)
+            // Recompile CSS
+            if (globalsCssPath) {
+                const cssResult = await compileCssAsync({ input: globalsCssPath, output: ':memory:' })
+                if (cssResult.success) {
+                    compiledCss = cssResult.css
+                }
+            }
             for (const client of clients) {
-                client.send(JSON.stringify({
-                    type: 'style-update',
-                    url: filename.includes('global.css') ? '/styles/global.css' : `/${filename}`
-                }))
+                client.send(JSON.stringify({ type: 'style-update', url: '/assets/styles.css' }))
             }
         } else if (filename.startsWith('content') || filename.includes('zenith-docs')) {
             logger.hmr('Content', filename)
@@ -176,14 +209,22 @@ export async function dev(options: DevOptions = {}): Promise<void> {
                 return response
             }
 
-            if (pathname === '/styles/global.css') {
-                const globalCssPath = path.join(pagesDir, '../styles/global.css')
-                if (fs.existsSync(globalCssPath)) {
-                    const css = fs.readFileSync(globalCssPath, 'utf-8')
-                    const response = new Response(css, { headers: { 'Content-Type': 'text/css' } })
-                    logger.route('GET', pathname, 200, Math.round(performance.now() - startTime), 0, Math.round(performance.now() - startTime))
-                    return response
-                }
+            // Serve compiler-owned CSS (Tailwind compiled)
+            if (pathname === '/assets/styles.css') {
+                const response = new Response(compiledCss, {
+                    headers: { 'Content-Type': 'text/css; charset=utf-8' }
+                })
+                logger.route('GET', pathname, 200, Math.round(performance.now() - startTime), 0, Math.round(performance.now() - startTime))
+                return response
+            }
+
+            // Legacy: also support /styles/globals.css or /styles/global.css for backwards compat
+            if (pathname === '/styles/globals.css' || pathname === '/styles/global.css') {
+                const response = new Response(compiledCss, {
+                    headers: { 'Content-Type': 'text/css; charset=utf-8' }
+                })
+                logger.route('GET', pathname, 200, Math.round(performance.now() - startTime), 0, Math.round(performance.now() - startTime))
+                return response
             }
 
             // Static files
