@@ -143,18 +143,19 @@ export async function dev(options: DevOptions = {}): Promise<void> {
 
         if (filename.endsWith('.zen')) {
             logger.hmr('Page', filename)
+
+            // Clear page cache to force fresh compilation on next request
+            pageCache.clear()
+
             // Recompile CSS for new Tailwind classes in .zen files
             if (globalsCssPath) {
                 const cssResult = await compileCssAsync({ input: globalsCssPath, output: ':memory:' })
                 if (cssResult.success) {
                     compiledCss = cssResult.css
-                    // Notify clients of CSS update
-                    for (const client of clients) {
-                        client.send(JSON.stringify({ type: 'style-update', url: '/assets/styles.css' }))
-                    }
                 }
             }
-            // Broadcast page reload
+
+            // Broadcast page reload AFTER cache cleared and CSS ready
             for (const client of clients) {
                 client.send(JSON.stringify({ type: 'reload' }))
             }
