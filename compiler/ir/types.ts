@@ -7,6 +7,17 @@
  */
 
 /**
+ * Structured ES module import metadata
+ * Parsed from component scripts, used for deterministic bundling
+ */
+export interface ScriptImport {
+  source: string         // Module specifier, e.g. 'gsap'
+  specifiers: string     // Import clause, e.g. '{ gsap }' or 'gsap' or ''
+  typeOnly: boolean      // TypeScript type-only import
+  sideEffect: boolean    // Side-effect import (no specifiers)
+}
+
+/**
  * Component Script IR - represents a component's script block
  * Used for collecting and bundling component scripts
  */
@@ -15,6 +26,7 @@ export type ComponentScriptIR = {
   script: string                         // Raw script content
   props: string[]                        // Declared props
   scriptAttributes: Record<string, string>  // Script attributes (setup, lang)
+  imports: ScriptImport[]                // Parsed npm imports for bundling
 }
 
 export type ZenIR = {
