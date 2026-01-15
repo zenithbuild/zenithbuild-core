@@ -1,6 +1,5 @@
 import path from 'path'
 import fs from 'fs'
-import os from 'os'
 import { serve, type ServerWebSocket } from 'bun'
 import { requireProject } from '../utils/project'
 import * as logger from '../utils/logger'
@@ -40,21 +39,23 @@ async function bundlePageScript(script: string, projectRoot: string): Promise<st
         return script
     }
 
-    // Create a temporary file for bundling
-    const tempDir = os.tmpdir()
-    const tempFile = path.join(tempDir, `zenith-bundle-${Date.now()}.js`)
+    // Write temp file in PROJECT directory so Bun can find node_modules
+    const tempDir = path.join(projectRoot, '.zenith-cache')
+    if (!fs.existsSync(tempDir)) {
+        fs.mkdirSync(tempDir, { recursive: true })
+    }
+    const tempFile = path.join(tempDir, `bundle-${Date.now()}.js`)
 
     try {
         // Write script to temp file
         fs.writeFileSync(tempFile, script, 'utf-8')
 
-        // Use Bun.build to bundle with npm resolution
+        // Use Bun.build to bundle with npm resolution from project's node_modules
         const result = await Bun.build({
             entrypoints: [tempFile],
             target: 'browser',
             format: 'esm',
             minify: false,
-            // Resolve modules from the project's node_modules
             external: [], // Bundle everything
         })
 
