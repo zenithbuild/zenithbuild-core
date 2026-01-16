@@ -47,7 +47,15 @@
     "start": "bun run build && bun run dev",
     "build:cli": "bun build bin/zenith.ts bin/zen-dev.ts bin/zen-build.ts bin/zen-preview.ts --outdir dist --target bun --bundle && for f in dist/*.js; do echo '#!/usr/bin/env bun' | cat - \"$f\" > \"$f.tmp\" && mv \"$f.tmp\" \"$f\" && chmod +x \"$f\"; done",
     "format": "prettier --write \"**/*.ts\"",
-    "format:check": "prettier --check \"**/*.ts\""
+    "format:check": "prettier --check \"**/*.ts\"",
+    "release": "bun run scripts/release.ts",
+    "release:dry": "bun run scripts/release.ts --dry-run",
+    "release:patch": "bun run scripts/release.ts --bump=patch",
+    "release:minor": "bun run scripts/release.ts --bump=minor",
+    "release:major": "bun run scripts/release.ts --bump=major"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "private": false,
   "devDependencies": {
