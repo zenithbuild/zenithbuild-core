@@ -1,6 +1,6 @@
 {
   "name": "@zenithbuild/core",
-  "version": "1.0.1",
+  "version": "1.0.7",
   "description": "Core library for the Zenith framework",
   "license": "MIT",
   "type": "module",
@@ -42,7 +42,7 @@
     "dev": "bun run build:cli && bin/zenith.ts dev",
     "build": "bun run build:cli",
     "start": "bun run build && bun run dev",
-    "build:cli": "bun build bin/zenith.ts bin/zen-dev.ts bin/zen-build.ts bin/zen-preview.ts --outdir dist --target bun --bundle && for f in dist/*.js; do echo '#!/usr/bin/env bun' | cat - \"$f\" > \"$f.tmp\" && mv \"$f.tmp\" \"$f\" && chmod +x \"$f\"; done",
+    "build:cli": "bun build bin/zenith.ts bin/zen-dev.ts bin/zen-build.ts bin/zen-preview.ts --outdir dist --target bun --bundle --external '*' && for f in dist/*.js; do echo '#!/usr/bin/env bun' | cat - \"$f\" > \"$f.tmp\" && mv \"$f.tmp\" \"$f\" && chmod +x \"$f\"; done",
     "format": "prettier --write \"**/*.ts\"",
     "format:check": "prettier --check \"**/*.ts\"",
     "release": "bun run scripts/release.ts",
@@ -64,8 +64,8 @@
     "typescript": "^5"
   },
   "dependencies": {
-    "@zenithbuild/compiler": "1.0.1",
-    "@zenithbuild/router": "1.0.1",
+    "@zenithbuild/compiler": "latest",
+    "@zenithbuild/router": "latest",
     "picocolors": "^1.1.1"
   }
 }
