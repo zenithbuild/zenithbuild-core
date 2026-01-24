@@ -28,8 +28,8 @@ export function findProjectRoot(startDir: string = process.cwd()): string | null
                 const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'))
                 const deps = { ...pkg.dependencies, ...pkg.devDependencies }
 
-                // Check for any @zenith/* or @zenithbuild/* dependency
-                const hasZenith = Object.keys(deps).some(d => d.startsWith('@zenith/') || d.startsWith('@zenithbuild/'))
+                // Check for any @zenith/* or @zenith/* dependency
+                const hasZenith = Object.keys(deps).some(d => d.startsWith('@zenith/') || d.startsWith('@zenith/'))
                 if (hasZenith) {
                     return current
                 }

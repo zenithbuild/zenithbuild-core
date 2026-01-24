@@ -24,22 +24,24 @@ import { serve, type ServerWebSocket } from 'bun'
 import { requireProject } from '../utils/project'
 import * as logger from '../utils/logger'
 import * as brand from '../utils/branding'
-import { compileZenSource } from '../../compiler/index'
-import { discoverLayouts } from '../../compiler/discovery/layouts'
-import { processLayout } from '../../compiler/transform/layoutProcessor'
-import { generateRouteDefinition } from '@zenithbuild/router'
-import { generateBundleJS } from '../../runtime/bundle-generator'
-import { loadZenithConfig } from '../../core/config/loader'
-import { PluginRegistry, createPluginContext, getPluginDataByNamespace } from '../../core/plugins/registry'
-import { compileCssAsync, resolveGlobalsCss } from '../../compiler/css'
 import {
+    compileZenSource,
+    discoverLayouts,
+    processLayout,
+    generateBundleJS,
+    loadZenithConfig,
+    PluginRegistry,
+    createPluginContext,
+    getPluginDataByNamespace,
+    compileCssAsync,
+    resolveGlobalsCss,
     createBridgeAPI,
     runPluginHooks,
     collectHookReturns,
     buildRuntimeEnvelope,
     clearHooks,
     type HookContext
-} from '../../core/plugins/bridge'
+} from '@zenith/compiler'
 
 export interface DevOptions {
     port?: number
@@ -56,53 +58,10 @@ interface CompiledPage {
 const pageCache = new Map<string, CompiledPage>()
 
 /**
- * Bundle page script using Bun's bundler to resolve npm imports at compile time.
- * This allows ES module imports like `import { gsap } from 'gsap'` to work.
+ * Bundle page script using Rolldown to resolve npm imports at compile time.
+ * Only called when compiler emits a BundlePlan - bundler performs no inference.
  */
-async function bundlePageScript(script: string, projectRoot: string): Promise<string> {
-    // If no import statements, return as-is
-    if (!script.includes('import ')) {
-        return script
-    }
-
-    // Write temp file in PROJECT directory so Bun can find node_modules
-    const tempDir = path.join(projectRoot, '.zenith-cache')
-    if (!fs.existsSync(tempDir)) {
-        fs.mkdirSync(tempDir, { recursive: true })
-    }
-    const tempFile = path.join(tempDir, `bundle-${Date.now()}.js`)
-
-    try {
-        // Write script to temp file
-        fs.writeFileSync(tempFile, script, 'utf-8')
-
-        // Use Bun.build to bundle with npm resolution from project's node_modules
-        const result = await Bun.build({
-            entrypoints: [tempFile],
-            target: 'browser',
-            format: 'esm',
-            minify: false,
-            external: [], // Bundle everything
-        })
-
-        if (!result.success || !result.outputs[0]) {
-            console.error('[Zenith] Bundle errors:', result.logs)
-            return script // Fall back to original
-        }
-
-        // Get the bundled output
-        const bundledCode = await result.outputs[0].text()
-        return bundledCode
-    } catch (error: any) {
-        console.error('[Zenith] Failed to bundle page script:', error.message)
-        return script // Fall back to original
-    } finally {
-        // Clean up temp file
-        try {
-            fs.unlinkSync(tempFile)
-        } catch { }
-    }
-}
+import { bundlePageScript, type BundlePlan, generateRouteDefinition } from '@zenith/compiler'
 
 export async function dev(options: DevOptions = {}): Promise<void> {
     const project = requireProject()
@@ -208,8 +167,69 @@ export async function dev(options: DevOptions = {}): Promise<void> {
 
             const routeDef = generateRouteDefinition(pagePath, pagesDir)
 
-            // Bundle the script to resolve npm imports at compile time
-            const bundledScript = await bundlePageScript(result.finalized.js, rootDir)
+
+
+            // Safely strip imports from the top of the script
+            // This relies on the fact that duplicate imports (from Rust codegen)
+            // appear at the beginning of result.finalized.js
+            let jsLines = result.finalized.js.split('\n')
+
+            // Remove lines from top that are imports, whitespace, or comments
+            while (jsLines.length > 0 && jsLines[0] !== undefined) {
+                const line = jsLines[0].trim()
+                if (
+                    line.startsWith('import ') ||
+                    line === '' ||
+                    line.startsWith('//') ||
+                    line.startsWith('/*') ||
+                    line.startsWith('*')
+                ) {
+                    jsLines.shift()
+                } else {
+                    break
+                }
+            }
+
+            let jsWithoutImports = jsLines.join('\n')
+
+            // PATCH: Fix unquoted keys with dashes (Rust codegen bug in jsx_lowerer)
+            // e.g. stroke-width: "1.5" -> "stroke-width": "1.5"
+            // We only apply this to the JS portions (Script and Expressions)
+            // to avoid corrupting the Styles section.
+            const stylesMarker = '// 6. Styles injection'
+            const parts = jsWithoutImports.split(stylesMarker)
+
+            if (parts.length > 1) {
+                // Apply patch only to the JS part
+                parts[0] = parts[0]!.replace(
+                    /(^|[{,])\s*([a-zA-Z][a-zA-Z0-9-]*-[a-zA-Z0-9-]*)\s*:/gm,
+                    '$1"$2":'
+                )
+                jsWithoutImports = parts.join(stylesMarker)
+            } else {
+                // Fallback if marker not found
+                jsWithoutImports = jsWithoutImports.replace(
+                    /(^|[{,])\s*([a-zA-Z][a-zA-Z0-9-]*-[a-zA-Z0-9-]*)\s*:/gm,
+                    '$1"$2":'
+                )
+            }
+
+            // Combine: structured imports first, then cleaned script body
+            const fullScript = (result.finalized.npmImports || '') + '\n\n' + jsWithoutImports
+
+            console.log('[Dev] Page Imports:', result.finalized.npmImports ? result.finalized.npmImports.split('\n').length : 0, 'lines')
+
+            // Bundle ONLY if compiler emitted a BundlePlan (no inference)
+            let bundledScript = fullScript
+            if (result.finalized.bundlePlan) {
+                // Compiler decided bundling is needed - pass plan with proper resolve roots
+                const plan: BundlePlan = {
+                    ...result.finalized.bundlePlan,
+                    entry: fullScript,
+                    resolveRoots: [path.join(rootDir, 'node_modules'), 'node_modules']
+                }
+                bundledScript = await bundlePageScript(plan)
+            }
 
             return {
                 html: result.finalized.html,
@@ -231,25 +251,21 @@ export async function dev(options: DevOptions = {}): Promise<void> {
      * It serializes blindly - never inspecting what's inside.
      */
     async function generateDevHTML(page: CompiledPage): Promise<string> {
-        // Collect runtime payloads from ALL plugins
-        // CLI doesn't know which plugins will respond - it just collects
-        const payloads = await collectHookReturns('cli:runtime:collect', hookCtx)
-
-        // Build envelope - CLI doesn't know what's inside
-        const envelope = buildRuntimeEnvelope(payloads)
-
-        // Escape </script> sequences in JSON to prevent breaking the script tag
-        const envelopeJson = JSON.stringify(envelope).replace(/<\//g, '<\\/')
-
-        // Single neutral injection point - NOT plugin-specific
+        // Single neutral injection point
         const runtimeTag = `<script src="/runtime.js"></script>`
-        const pluginDataTag = `<script>window.__ZENITH_PLUGIN_DATA__ = ${envelopeJson};</script>`
         const scriptTag = `<script type="module">\n${page.script}\n</script>`
-        const allScripts = `${runtimeTag}\n${pluginDataTag}\n${scriptTag}`
+        const allScripts = `${runtimeTag}\n${scriptTag}`
 
-        return page.html.includes('</body>')
+        let html = page.html.includes('</body>')
             ? page.html.replace('</body>', `${allScripts}\n</body>`)
             : `${page.html}\n${allScripts}`
+
+        // Ensure DOCTYPE is present to prevent Quirks Mode (critical for SVG namespace)
+        if (!html.trimStart().toLowerCase().startsWith('<!doctype')) {
+            html = `<!DOCTYPE html>\n${html}`
+        }
+
+        return html
     }
 
     // ============================================
@@ -327,7 +343,11 @@ export async function dev(options: DevOptions = {}): Promise<void> {
 
             // Handle Zenith assets
             if (pathname === '/runtime.js') {
-                const response = new Response(generateBundleJS(), {
+                // Collect runtime payloads from ALL plugins
+                const payloads = await collectHookReturns('cli:runtime:collect', hookCtx)
+                const envelope = buildRuntimeEnvelope(payloads)
+
+                const response = new Response(generateBundleJS(envelope), {
                     headers: { 'Content-Type': 'application/javascript; charset=utf-8' }
                 })
                 logger.route('GET', pathname, 200, Math.round(performance.now() - startTime), 0, Math.round(performance.now() - startTime))

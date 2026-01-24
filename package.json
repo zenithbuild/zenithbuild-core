@@ -1,10 +1,10 @@
 {
-  "name": "@zenithbuild/core",
-  "version": "1.0.0",
+  "name": "@zenith/core",
+  "version": "1.0.1",
   "description": "Core library for the Zenith framework",
   "license": "MIT",
   "type": "module",
-  "main": "./index.ts",
+  "main": "./core/index.ts",
   "bin": {
     "zenith": "./dist/zenith.js",
     "zenith-dev": "./dist/zen-dev.js",
@@ -15,7 +15,6 @@
   "files": [
     "bin",
     "cli",
-    "compiler",
     "core",
     "router",
     "runtime",
@@ -24,12 +23,10 @@
     "tsconfig.json"
   ],
   "exports": {
-    ".": "./index.ts",
-    "./compiler": "./compiler/index.ts",
-    "./config": "./core/config/index.ts",
-    "./core": "./core/index.ts",
-    "./router": "./router/index.ts",
-    "./runtime": "./runtime/index.ts"
+    ".": "./core/index.ts",
+    "./config": "./core/config.ts",
+    "./plugins": "./core/index.ts",
+    "./runtime": "./core/index.ts"
   },
   "keywords": [
     "zenith",
@@ -39,11 +36,11 @@
   "author": "Zenith Team",
   "repository": {
     "type": "git",
-    "url": "git@github.com:zenithbuild/zenith-core.git"
+    "url": "git+ssh://git@github.com/zenithbuild/zenith-core.git"
   },
   "scripts": {
-    "dev": "bun dev",
-    "build": "bun build",
+    "dev": "bun run build:cli && bin/zenith.ts dev",
+    "build": "bun run build:cli",
     "start": "bun run build && bun run dev",
     "build:cli": "bun build bin/zenith.ts bin/zen-dev.ts bin/zen-build.ts bin/zen-preview.ts --outdir dist --target bun --bundle && for f in dist/*.js; do echo '#!/usr/bin/env bun' | cat - \"$f\" > \"$f.tmp\" && mv \"$f.tmp\" \"$f\" && chmod +x \"$f\"; done",
     "format": "prettier --write \"**/*.ts\"",
@@ -67,14 +64,8 @@
     "typescript": "^5"
   },
   "dependencies": {
-    "@zenithbuild/router": "latest",
-    "@types/acorn": "^6.0.4",
-    "@types/marked": "^6.0.0",
-    "@types/parse5": "^7.0.0",
-    "acorn": "^8.15.0",
-    "es-module-lexer": "^2.0.0",
-    "marked": "^17.0.1",
-    "parse5": "^8.0.0",
-    "picocolors": "^1.1.1"
+    "@zenith/compiler": "latest",
+    "@zenith/router": "latest",
+    "picocolors": "latest"
   }
 }

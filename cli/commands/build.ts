@@ -4,10 +4,9 @@
  * Builds the application for production using SSG.
  */
 
-import path from 'path'
 import { requireProject } from '../utils/project'
 import * as logger from '../utils/logger'
-import { buildSSG } from '../../compiler/ssg-build'
+import { buildSSG } from '@zenith/compiler'
 
 export interface BuildOptions {
     outDir?: string

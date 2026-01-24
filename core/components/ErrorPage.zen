@@ -1,0 +1,218 @@
+<script setup="ts">
+// ErrorPage.zen
+// A high-fidelity, magazine-style error page for Zenith developers.
+
+import { zenOnMount, zenSignal } from 'zenith:runtime';
+import gsap from 'gsap';
+
+interface ErrorProps {
+    file: string;
+    line: number;
+    column: number;
+    message: string;
+    errorType: string;
+    code: string;
+    guarantee?: string;
+    context?: string;
+    hints?: string[];
+    stack?: string;
+    isProd?: boolean;
+}
+
+const { 
+    file, 
+    line, 
+    column, 
+    message, 
+    errorType, 
+    code, 
+    guarantee, 
+    context, 
+    hints = [], 
+    stack,
+    isProd = false 
+} = zenProps<ErrorProps>();
+
+const showAdvanced = zenSignal(false);
+const errorRef = zenRef<HTMLElement>();
+
+zenOnMount(() => {
+    const ctx = gsap.context(() => {
+        // Fade in main container
+        gsap.from('.error-hero', {
+            opacity: 0,
+            y: 30,
+            duration: 0.8,
+            ease: 'expo.out'
+        });
+
+        // Stagger in details
+        gsap.from(['.error-meta', '.error-message', '.error-hints > div'], {
+            opacity: 0,
+            x: -20,
+            stagger: 0.1,
+            duration: 0.6,
+            delay: 0.4,
+            ease: 'power2.out'
+        });
+
+        // Fade in code/context
+        gsap.from('.error-context', {
+            opacity: 0,
+            scale: 0.98,
+            duration: 1,
+            delay: 0.6,
+            ease: 'expo.out'
+        });
+    }, errorRef.current);
+
+    return () => ctx.revert();
+});
+
+const toggleAdvanced = () => showAdvanced(!showAdvanced());
+
+</script>
+
+<div class="error-page-container min-h-screen bg-background text-foreground font-body overflow-hidden selection:bg-red-500/30" ref={errorRef}>
+    <!-- Sticky Header -->
+    <header class="p-6 md:p-10 flex justify-between items-center border-b border-border/50">
+        <div class="flex items-center gap-3">
+            <div class="w-2 h-2 rounded-full bg-red-500 animate-pulse"></div>
+            <span class="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Zenith Developer Environment</span>
+        </div>
+        <a href="/documentation" class="text-[10px] font-bold uppercase tracking-widest hover:text-red-500 transition-colors">Documentation</a>
+    </header>
+
+    <main class="max-w-[1400px] mx-auto px-8 md:px-16 py-16 md:py-24 grid grid-cols-1 lg:grid-cols-[1.2fr_0.8fr] gap-16 md:gap-24">
+        
+        <!-- Left Column: Primary Error Info -->
+        <section class="space-y-12">
+            <div class="error-hero space-y-6">
+                <div class="inline-block px-3 py-1 bg-red-500/10 border border-red-500/20 rounded-full">
+                    <span class="text-[10px] font-black uppercase text-red-500 tracking-tighter">{code}</span>
+                </div>
+                <h1 class="text-5xl md:text-7xl font-black tracking-tight leading-[0.9] uppercase">
+                    Something <br/> <span class="text-red-500">Went Wrong</span>
+                </h1>
+            </div>
+
+            <div class="error-meta flex flex-wrap gap-8 py-8 border-y border-border/30">
+                <div class="space-y-1">
+                    <span class="text-[9px] uppercase font-bold text-muted-foreground tracking-widest">Location</span>
+                    <p class="text-sm font-mono truncate max-w-[300px]">{file}:{line}:{column}</p>
+                </div>
+                <div class="space-y-1">
+                    <span class="text-[9px] uppercase font-bold text-muted-foreground tracking-widest">Type</span>
+                    <p class="text-sm font-mono">{errorType}</p>
+                </div>
+            </div>
+
+            <div class="error-message space-y-4">
+                <p class="text-2xl md:text-3xl font-medium leading-tight text-foreground/90">
+                    {message}
+                </p>
+                {guarantee && (
+                    <div class="p-6 bg-secondary/50 rounded-2xl border border-border/50">
+                        <span class="text-[9px] uppercase font-black text-primary tracking-widest block mb-2">Zenith Guarantee</span>
+                        <p class="text-sm italic opacity-80">{guarantee}</p>
+                    </div>
+                )}
+            </div>
+
+            {hints.length > 0 && (
+                <div class="error-hints space-y-4 pt-10">
+                    <h3 class="text-xs font-black uppercase tracking-[0.2em] text-muted-foreground mb-6">Suggestions</h3>
+                    {hints.map(hint => (
+                        <div key={hint} class="flex gap-4 items-start p-4 hover:bg-secondary/30 transition-colors rounded-xl border border-transparent hover:border-border/50">
+                            <span class="text-red-500 mt-1">→</span>
+                            <p class="text-sm">{hint}</p>
+                        </div>
+                    ))}
+                </div>
+            )}
+        </section>
+
+        <!-- Right Column: Context & Visuals -->
+        <section class="error-context space-y-8">
+            <div class="relative group">
+                <div class="absolute -inset-1 bg-gradient-to-tr from-red-500/20 to-transparent blur-2xl opacity-50"></div>
+                <div class="relative bg-zinc-950 rounded-3xl border border-white/10 overflow-hidden shadow-2xl">
+                    <div class="flex items-center justify-between px-6 py-4 border-b border-white/5 bg-zinc-900/50">
+                        <span class="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Contextual Snippet</span>
+                        <div class="flex gap-1.5">
+                            <div class="w-2.5 h-2.5 rounded-full bg-white/10"></div>
+                            <div class="w-2.5 h-2.5 rounded-full bg-white/10"></div>
+                            <div class="w-2.5 h-2.5 rounded-full bg-white/10"></div>
+                        </div>
+                    </div>
+                    <div class="p-8 font-mono text-sm leading-relaxed overflow-x-auto text-zinc-300">
+                        {context ? (
+                            <pre><code>{context}</code></pre>
+                        ) : (
+                            <div class="py-12 text-center opacity-30 select-none">
+                                <p class="text-[10px] uppercase tracking-widest">No code snippet available</p>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Advanced Section -->
+            {!isProd && (
+                <div class="pt-8">
+                    <button 
+                        onClick={toggleAdvanced}
+                        class="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors group"
+                    >
+                        {showAdvanced() ? 'Collapse Details' : 'View Stack Trace'}
+                        <span class={`transition-transform duration-300 ${showAdvanced() ? 'rotate-180' : ''}`}>↓</span>
+                    </button>
+
+                    {showAdvanced() && (
+                        <div class="mt-8 space-y-6 animate-in fade-in slide-in-from-top-4 duration-500">
+                            {stack && (
+                                <div class="p-6 bg-zinc-950 rounded-2xl border border-white/5 overflow-x-auto">
+                                    <span class="text-[9px] uppercase font-bold text-zinc-500 tracking-widest block mb-4">Runtime Stack</span>
+                                    <pre class="text-[11px] font-mono text-zinc-500 leading-tight"><code>{stack}</code></pre>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
+            )}
+        </section>
+    </main>
+
+    <!-- Footer Decoration -->
+    <div class="fixed bottom-0 left-0 w-full h-[30vh] pointer-events-none opacity-[0.03] select-none flex items-end justify-center overflow-hidden">
+        <span class="text-[25vw] font-black tracking-tighter leading-none translate-y-1/4 uppercase">ZENITH</span>
+    </div>
+</div>
+
+<style>
+.error-page-container {
+    --primary: #ef4444; /* red-500 */
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+
+.animate-pulse {
+    animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Custom scrollbar for context box */
+.error-context ::-webkit-scrollbar {
+    height: 4px;
+    width: 4px;
+}
+.error-context ::-webkit-scrollbar-track {
+    background: transparent;
+}
+.error-context ::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+}
+</style>

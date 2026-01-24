@@ -1,5 +1,5 @@
 /**
- * @zenithbuild/cli - Create Command
+ * @zenith/cli - Create Command
  * 
  * Scaffolds a new Zenith application with interactive prompts,
  * branded visuals, and optional configuration generation.
@@ -183,7 +183,7 @@ async function createProject(options: ProjectOptions): Promise<void> {
             test: 'bun test'
         },
         dependencies: {
-            '@zenithbuild/core': '^0.1.0'
+            '@zenith/core': '^0.1.0'
         },
         devDependencies: {
             '@types/bun': 'latest'

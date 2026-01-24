@@ -133,3 +133,32 @@ export {
   resetUnmountState
 } from './lifecycle'
 
+// ============================================
+// Build-time Modules (Proxied from @zenith/compiler)
+// ============================================
+
+export {
+  loadZenithConfig
+} from '@zenith/compiler/config'
+
+export {
+  PluginRegistry,
+  createPluginContext,
+  getPluginDataByNamespace,
+  createBridgeAPI,
+  runPluginHooks,
+  collectHookReturns,
+  buildRuntimeEnvelope,
+  clearHooks
+} from '@zenith/compiler'
+
+export type { HookContext } from '@zenith/compiler'
+
+// ============================================
+// Core Components
+// ============================================
+
+export {
+  CORE_COMPONENTS,
+  getCoreComponentPath
+} from './components'

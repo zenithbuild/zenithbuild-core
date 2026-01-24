@@ -1,37 +1,38 @@
-# @zenithbuild/core ⚡
+# @zenith/core ⚡
 
-The heart of the Zenith framework. High-performance reactive runtime, compiler, and build primitives.
+The execution target and orchestrator for the Zenith framework. Contains the minimal reactive runtime and CLI tools.
 
 ## Overview
 
-Zenith is a modern reactive web framework designed for maximum performance and developer experience. The core package contains the essential building blocks:
-- **Compiler**: Transforms `.zen` files into optimized JavaScript.
-- **Runtime**: A lightweight, efficient reactive system for the browser.
-- **Router**: Lightweight client-side routing.
-- **Build Primitives**: Tools for dev servers and production builds.
+Zenith is a modern reactive web framework designed for maximum performance and developer experience. The core package serves as the **Execution Target**:
+- **Reactivity Engine**: Atomic signals and deep state with zero runtime abstraction.
+- **Lifecycle System**: Efficient `onMount`/`onUnmount` management.
+- **CLI Orchestrator**: Commands (`dev`, `build`, `preview`) that drive the native compiler.
 
 ## Key Components
 
-### 1. Compiler (`/compiler`)
-The Zenith compiler handles parsing and transforming Single File Components (`.zen`). It leverages `parse5` for robust HTML parsing and generates highly optimized render functions.
+### 1. Reactivity (`/core/reactivity`)
+The foundational reactive system. Pure, fast, and deterministic.
 
-### 2. Runtime (`/runtime`)
-Our runtime is designed to be minimal. It manages the reactive cycle, efficient DOM updates, and lifecycle management (like `zenOnMount`).
+### 2. Lifecycle (`/core/lifecycle`)
+Instance-based lifecycle management tied to the DOM.
 
-### 3. Server (`/bin/zen-dev`, `/bin/zen-build`)
-Low-level binaries for orchestrating development and production environments.
+### 3. CLI (`/cli`)
+The command-line interface that orchestrates the system build chain.
 
-## Architecture
+## Coordinated Architecture
 
-Zenith follows a "Compiler-First" philosophy. We shift as much work as possible to build time, keeping the client-side bundle lean and fast.
+Zenith follows a strict "Compiler-First" philosophy:
+- **@zenith/compiler**: Owns all structures, wiring, and build-time guarantees.
+- **@zenith/core**: Owns the minimal runtime execution needed to run compiled plans.
 
-## Usage (Internal)
-
-This package is typically consumed by the Zenith CLI and other ecosystem tools.
+## Usage
 
 ```typescript
-import { compile } from '@zenithbuild/core/compiler';
-// ... compile logic
+import { signal, effect, onMount } from '@zenith/core';
+
+const count = signal(0);
+onMount(() => console.log('Ready'));
 ```
 
 ## License
