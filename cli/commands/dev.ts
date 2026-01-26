@@ -78,7 +78,7 @@ export async function dev(options: DevOptions = {}): Promise<void> {
     // Clear any previously registered hooks (important for restarts)
     clearHooks()
 
-    console.log('[Zenith] Config plugins:', config.plugins?.length ?? 0)
+    logger.debug(`Config plugins: ${config.plugins?.length ?? 0}`)
 
     // ============================================
     // Plugin Registration (Unconditional)
@@ -86,15 +86,15 @@ export async function dev(options: DevOptions = {}): Promise<void> {
     // CLI registers ALL plugins without checking which ones exist.
     // Each plugin decides what hooks to register.
     for (const plugin of config.plugins || []) {
-        console.log('[Zenith] Registering plugin:', plugin.name)
+        logger.debug(`Registering plugin: ${plugin.name}`)
         registry.register(plugin)
 
         // Let plugin register its CLI hooks (if it wants to)
         // CLI does NOT check what the plugin is - it just offers the API
-        console.log('[Zenith] About to call registerCLI for:', plugin.name)
+        logger.debug(`About to call registerCLI for: ${plugin.name}`)
         if (plugin.registerCLI) {
             plugin.registerCLI(bridgeAPI)
-            console.log('[Zenith] registerCLI completed for:', plugin.name)
+            logger.debug(`registerCLI completed for: ${plugin.name}`)
         }
     }
 
@@ -103,20 +103,20 @@ export async function dev(options: DevOptions = {}): Promise<void> {
     // ============================================
     // Initialize ALL plugins unconditionally.
     // If no plugins, this is a no-op. CLI doesn't branch on plugin presence.
-    console.log('[Zenith] About to call registry.initAll...')
+    logger.debug('About to call registry.initAll...')
     await registry.initAll(createPluginContext(rootDir))
-    console.log('[Zenith] registry.initAll completed')
+    logger.debug('registry.initAll completed')
 
     // Create hook context - CLI provides this but NEVER uses getPluginData itself
     const hookCtx: HookContext = {
         projectRoot: rootDir,
         getPluginData: getPluginDataByNamespace
     }
-    console.log('[Zenith] hookCtx created, calling runPluginHooks...')
+    logger.debug('hookCtx created, calling runPluginHooks...')
 
     // Dispatch lifecycle hook - plugins decide if they care
     await runPluginHooks('cli:dev:start', hookCtx)
-    console.log('[Zenith] runPluginHooks completed')
+    logger.debug('runPluginHooks completed')
 
     // ============================================
     // CSS Compilation (Compiler-Owned)
@@ -125,11 +125,11 @@ export async function dev(options: DevOptions = {}): Promise<void> {
     let compiledCss = ''
 
     if (globalsCssPath) {
-        console.log('[Zenith] Compiling CSS:', path.relative(rootDir, globalsCssPath))
+        logger.debug(`Compiling CSS: ${path.relative(rootDir, globalsCssPath)}`)
         const cssResult = await compileCssAsync({ input: globalsCssPath, output: ':memory:' })
         if (cssResult.success) {
             compiledCss = cssResult.css
-            console.log(`[Zenith] CSS compiled in ${cssResult.duration}ms`)
+            logger.debug(`CSS compiled in ${cssResult.duration}ms`)
         } else {
             console.error('[Zenith] CSS compilation failed:', cssResult.error)
         }
@@ -207,8 +207,8 @@ export async function dev(options: DevOptions = {}): Promise<void> {
             })
             if (!result.finalized) throw new Error('Compilation failed')
 
-            console.log('[Dev] Finalized JS Length:', result.finalized.js.length)
-            console.log('[Dev] Finalized JS Preview:', result.finalized.js.substring(0, 500))
+            logger.debug(`Finalized JS Length: ${result.finalized.js.length}`)
+            logger.debug(`Finalized JS Preview: ${result.finalized.js.substring(0, 500)}`)
 
             const routeDef = generateRouteDefinition(pagePath, pagesDir)
 
@@ -262,7 +262,7 @@ export async function dev(options: DevOptions = {}): Promise<void> {
             // Combine: structured imports first, then cleaned script body
             const fullScript = (result.finalized.npmImports || '') + '\n\n' + jsWithoutImports
 
-            console.log('[Dev] Page Imports:', result.finalized.npmImports ? result.finalized.npmImports.split('\n').length : 0, 'lines')
+            logger.debug(`Page Imports: ${result.finalized.npmImports ? result.finalized.npmImports.split('\n').length : 0} lines`)
 
             // Bundle ONLY if compiler emitted a BundlePlan (no inference)
             let bundledScript = fullScript
