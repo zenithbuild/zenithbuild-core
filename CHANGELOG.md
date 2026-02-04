@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.4] - 2026-02-04
+
+### 🐛 Bug Fixes
+
+- ****core**: bump to 1.3.3 and correct deps to v1.3.2** (e4993da)
+
+### 📝 Other Changes
+
+- **
+c4d9f800bbb1872c65c7e75fc2e0d478d3975f3e** ()
+  > fix(cli): convert to ESM and update tools to v1.3.2
+- **
+62b5509557ad9e6a7c92b97c1a190aa874845edb** ()
+  > chore: update deps to registry versions and release v1.3.1
+- **
+d4c2b192bae727fa0fd93d1ccc7027a573b0a3fa** ()
+  > chore: migrate to unified core architecture v1.3.1
+- **
+96dde815d3a33941b6302b66e2eebfe5cfa78de8** ()
+  > feat(dev-server): implement Phase 6 - Zero-Copy Dev Server Integration|Implement a high-performance, in-memory development server architecture for the Zenith Framework.
+  > 
+  > - Phase 6 integration of Dev Server and AssetStore.
+  > - NAPI Controller and HMR loop implementation.
+  > - Workspace-wide alignment for Phase 6 completion.
+
 ## [1.2.13] - 2026-01-26
 
 ### 🔨 Chores
