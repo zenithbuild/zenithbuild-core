@@ -25,10 +25,8 @@ import { requireProject } from '../utils/project'
 import * as logger from '../utils/logger'
 import * as brand from '../utils/branding'
 import {
-    compileZenSource,
+    compile,
     discoverComponents,
-    discoverLayouts,
-    processLayout,
     generateBundleJS,
     loadZenithConfig,
     PluginRegistry,
@@ -160,8 +158,8 @@ export async function dev(options: DevOptions = {}): Promise<void> {
             const componentsDir = path.join(pagesDir, '../components')
             const layoutsDir = path.join(pagesDir, '../layouts')
 
-            // Discover layouts for wrapping logic
-            const layouts = discoverLayouts(layoutsDir)
+            // Discover layouts removed in Phase A1
+            // const layouts = discoverLayouts(layoutsDir)
 
             // Discover components for resolution logic
             // We need layouts to be available as components too (e.g. <DefaultLayout>)
@@ -189,20 +187,15 @@ export async function dev(options: DevOptions = {}): Promise<void> {
             // If the page doesn't explicitly use the layout, we might wrap it?
             // But if users use <DefaultLayout>, that's handled by component resolution.
 
+            // Legacy layout wrapping removed in Phase A1
+            /*
             let layoutToUse = layouts.get('DefaultLayout')
             if (layoutToUse && !source.includes('<DefaultLayout')) {
-                // only wrap if not already used? 
-                // actually processLayout is usually for "implicit" layout application
-                // If the user manually wraps, processLayout might double wrap?
-                // Let's assume processLayout logic is correct for now or minimal.
-                // processLayout(source, layoutToUse) checks if it should wrap.
                 processedSource = processLayout(source, layoutToUse)
-            } else if (layoutToUse) {
-                // If it IS used explicitly, we treat it as a component.
-                // We don't wrap it.
             }
+            */
 
-            const result = await compileZenSource(processedSource, pagePath, {
+            const result = await compile(processedSource, pagePath, {
                 components: componentsMap
             })
             if (!result.finalized) throw new Error('Compilation failed')
@@ -236,28 +229,6 @@ export async function dev(options: DevOptions = {}): Promise<void> {
             }
 
             let jsWithoutImports = jsLines.join('\n')
-
-            // PATCH: Fix unquoted keys with dashes (Rust codegen bug in jsx_lowerer)
-            // e.g. stroke-width: "1.5" -> "stroke-width": "1.5"
-            // We only apply this to the JS portions (Script and Expressions)
-            // to avoid corrupting the Styles section.
-            const stylesMarker = '// 6. Styles injection'
-            const parts = jsWithoutImports.split(stylesMarker)
-
-            if (parts.length > 1) {
-                // Apply patch only to the JS part
-                parts[0] = parts[0]!.replace(
-                    /(^|[{,])\s*([a-zA-Z][a-zA-Z0-9-]*-[a-zA-Z0-9-]*)\s*:/gm,
-                    '$1"$2":'
-                )
-                jsWithoutImports = parts.join(stylesMarker)
-            } else {
-                // Fallback if marker not found
-                jsWithoutImports = jsWithoutImports.replace(
-                    /(^|[{,])\s*([a-zA-Z][a-zA-Z0-9-]*-[a-zA-Z0-9-]*)\s*:/gm,
-                    '$1"$2":'
-                )
-            }
 
             // Combine: structured imports first, then cleaned script body
             const fullScript = (result.finalized.npmImports || '') + '\n\n' + jsWithoutImports
@@ -312,7 +283,7 @@ export async function dev(options: DevOptions = {}): Promise<void> {
         }
 
         if (!html.trimStart().toLowerCase().startsWith('<!doctype')) {
-            html = `<!DOCTYPE html>\n<html lang="en">\n${html}\n</html>`;
+            html = `<!DOCTYPE html>\n${html}`;
         }
 
         return html;
