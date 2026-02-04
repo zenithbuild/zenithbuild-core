@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-const { createZenithBundler } = require('@zenithbuild/bundler');
+import { createZenithBundler } from '@zenithbuild/bundler';
 
 const args = process.argv.slice(2);
 const command = args[0];
