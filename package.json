@@ -1,6 +1,6 @@
 {
   "name": "@zenithbuild/core",
-  "version": "1.3.6",
+  "version": "1.3.7",
   "description": "Core library for the Zenith framework",
   "license": "MIT",
   "type": "module",
@@ -60,7 +60,7 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@zenithbuild/bundler": "1.3.6",
+    "@zenithbuild/bundler": "1.3.7",
     "@zenithbuild/compiler": "1.3.5",
     "@zenithbuild/router": "1.3.0",
     "picocolors": "^1.1.1"
