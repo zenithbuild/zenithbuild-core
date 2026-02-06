@@ -219,14 +219,15 @@ export async function dev(options: DevOptions = {}): Promise<void> {
             // Remove lines from top that are imports, whitespace, or comments
             while (jsLines.length > 0 && jsLines[0] !== undefined) {
                 const line = jsLines[0].trim()
-                if (
-                    line.startsWith('import ') ||
-                    line === '' ||
-                    line.startsWith('//') ||
-                    line.startsWith('/*') ||
-                    line.startsWith('*')
-                ) {
+                if (line === '' || line.startsWith('//') || line.startsWith('/*') || line.startsWith('*')) {
                     jsLines.shift()
+                } else if (line.startsWith('import ')) {
+                    // Handle multiline imports: consume until we find a semicolon or empty line
+                    let currentLine = jsLines.shift() || ''
+                    while (!currentLine.trim().endsWith(';') && jsLines.length > 0) {
+                        const nextPart = jsLines.shift() || ''
+                        currentLine += ' ' + nextPart
+                    }
                 } else {
                     break
                 }
@@ -234,8 +235,23 @@ export async function dev(options: DevOptions = {}): Promise<void> {
 
             let jsWithoutImports = jsLines.join('\n')
 
+            const ZEN_RUNTIME_IMPORTS = [
+                'import {',
+                '  signal as zenSignal,',
+                '  state as zenState,',
+                '  effect as zenEffect,',
+                '  memo as zenMemo,',
+                '  ref as zenRef,',
+                '  onMount as zenOnMount,',
+                '  onUnmount as zenOnUnmount,',
+                '  batch as zenBatch,',
+                '  untrack as zenUntrack',
+                '} from "@zenithbuild/runtime";'
+            ].join('\n');
+
             // Combine: structured imports first, then cleaned script body
-            const fullScript = (result.finalized.npmImports || '') + '\n\n' + jsWithoutImports
+            // We inject runtime imports manually because npmImports excludes them
+            const fullScript = ZEN_RUNTIME_IMPORTS + '\n\n' + (result.finalized.npmImports || '') + '\n\n' + jsWithoutImports
 
             logger.debug(`Page Imports: ${result.finalized.npmImports ? result.finalized.npmImports.split('\n').length : 0} lines`)
 
