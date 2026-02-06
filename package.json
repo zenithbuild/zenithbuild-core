@@ -1,6 +1,6 @@
 {
   "name": "@zenithbuild/core",
-  "version": "1.3.11",
+  "version": "1.3.13",
   "description": "Core library for the Zenith framework",
   "license": "MIT",
   "type": "module",
@@ -59,10 +59,9 @@
   "peerDependencies": {
     "typescript": "^5.9.3"
   },
-  "dependencies": {
-    "@zenithbuild/bundler": "workspace:*",
-    "@zenithbuild/compiler": "workspace:*",
-    "@zenithbuild/router": "1.3.0",
-    "picocolors": "^1.1.1"
-  }
+  "@zenithbuild/bundler": "workspace:*",
+  "@zenithbuild/compiler": "workspace:*",
+  "@zenithbuild/runtime": "workspace:*",
+  "@zenithbuild/router": "workspace:*",
+  "picocolors": "^1.1.1"
 }

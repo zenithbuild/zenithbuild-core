@@ -55,14 +55,14 @@
 
 // Explicit zen* exports (internal naming)
 export {
-  zenSignal,
-  zenState,
-  zenEffect,
-  zenMemo,
-  zenRef,
-  zenBatch,
-  zenUntrack
-} from './reactivity'
+  signal as zenSignal,
+  state as zenState,
+  effect as zenEffect,
+  memo as zenMemo,
+  ref as zenRef,
+  batch as zenBatch,
+  untrack as zenUntrack
+} from '@zenithbuild/runtime'
 
 // Types
 export type {
@@ -73,7 +73,7 @@ export type {
   DisposeFn,
   Subscriber,
   TrackingContext
-} from './reactivity'
+} from '@zenithbuild/runtime'
 
 // Clean name exports (public DX)
 export {
@@ -84,7 +84,7 @@ export {
   ref,
   batch,
   untrack
-} from './reactivity'
+} from '@zenithbuild/runtime'
 
 // Internal tracking utilities (advanced use)
 export {
@@ -98,7 +98,7 @@ export {
   startBatch,
   endBatch,
   isBatching
-} from './reactivity'
+} from '@zenithbuild/runtime'
 
 // ============================================
 // Lifecycle Hooks
@@ -106,21 +106,21 @@ export {
 
 // Explicit zen* exports (internal naming)
 export {
-  zenOnMount,
-  zenOnUnmount
-} from './lifecycle'
+  onMount as zenOnMount,
+  onUnmount as zenOnUnmount
+} from '@zenithbuild/runtime'
 
 // Clean name exports (public DX)
 export {
   onMount,
   onUnmount
-} from './lifecycle'
+} from '@zenithbuild/runtime'
 
 // Types
 export type {
   MountCallback,
   UnmountCallback
-} from './lifecycle'
+} from '@zenithbuild/runtime'
 
 // Internal lifecycle utilities (for component system)
 export {
@@ -131,7 +131,7 @@ export {
   getUnmountCallbackCount,
   resetMountState,
   resetUnmountState
-} from './lifecycle'
+} from '@zenithbuild/runtime'
 
 // ============================================
 // Build-time Modules (Proxied from @zenithbuild/compiler)
