@@ -26,14 +26,10 @@ import * as logger from '../utils/logger'
 import * as brand from '../utils/branding'
 import {
     compile,
-    discoverComponents,
-    generateBundleJS,
     loadZenithConfig,
     PluginRegistry,
     createPluginContext,
     getPluginDataByNamespace,
-    compileCssAsync,
-    resolveGlobalsCss,
     createBridgeAPI,
     runPluginHooks,
     collectHookReturns,
@@ -41,6 +37,14 @@ import {
     clearHooks,
     type HookContext
 } from '@zenithbuild/compiler'
+import {
+    compileCssAsync,
+    resolveGlobalsCss,
+    bundlePageScript,
+    generateBundleJS,
+    discoverComponents
+} from '@zenithbuild/bundler'
+import { generateRouteDefinition } from '@zenithbuild/router/manifest'
 
 export interface DevOptions {
     port?: number
@@ -49,7 +53,7 @@ export interface DevOptions {
 interface CompiledPage {
     html: string
     script: string
-    styles: string[]
+    styles: string
     route: string
     lastModified: number
 }
@@ -60,7 +64,7 @@ const pageCache = new Map<string, CompiledPage>()
  * Bundle page script using Rolldown to resolve npm imports at compile time.
  * Only called when compiler emits a BundlePlan - bundler performs no inference.
  */
-import { bundlePageScript, type BundlePlan, generateRouteDefinition } from '@zenithbuild/compiler'
+import type { BundlePlan } from '@zenithbuild/compiler'
 
 export async function dev(options: DevOptions = {}): Promise<void> {
     const project = requireProject()
@@ -250,7 +254,7 @@ export async function dev(options: DevOptions = {}): Promise<void> {
             return {
                 html: result.finalized.html,
                 script: bundledScript,
-                styles: result.finalized.styles,
+                styles: result.finalized.styles || '',
                 route: routeDef.path,
                 lastModified: Date.now()
             }

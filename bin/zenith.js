@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 import { createZenithBundler } from '@zenithbuild/bundler';
 
 const args = process.argv.slice(2);

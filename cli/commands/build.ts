@@ -6,7 +6,7 @@
 
 import { requireProject } from '../utils/project'
 import * as logger from '../utils/logger'
-import { buildSSG } from '@zenithbuild/compiler'
+import { buildSSG } from '@zenithbuild/bundler'
 
 export interface BuildOptions {
     outDir?: string
