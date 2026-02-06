@@ -274,8 +274,15 @@ export async function dev(options: DevOptions = {}): Promise<void> {
         // Runtime MUST be a regular script (not module) to execute synchronously
         // before the page module script runs and needs its globals
         const runtimeTag = `<script src="/runtime.js"></script>`
+        const importMap = `<script type="importmap">
+{
+  "imports": {
+    "@zenithbuild/runtime": "/runtime.js"
+  }
+}
+</script>`
         const scriptTag = `<script type="module">\n${page.script}\n</script>`
-        const allScripts = `${runtimeTag}\n${scriptTag}`
+        const allScripts = `${importMap}\n${runtimeTag}\n${scriptTag}`
 
         let html = page.html;
         if (html.includes('</head>')) {
