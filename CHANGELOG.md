@@ -5,6 +5,43 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.20] - 2026-02-06
+
+### 🐛 Bug Fixes
+
+- **inject import map into dev html** (07ca51d)
+
+### 📝 Other Changes
+
+- **
+4551289c13e540b92f4426507506ac87e943e4ad** ()
+  > chore: update core dependencies for patch release
+- **
+f8855cbd09299fa84d946827339a8a5202eda5dc** ()
+  > chore: update dependencies and version for release
+- **
+1acdd45fbb6a1c57ce13a06aa0378ce877d78a9e** ()
+  > ssh 0531
+- **
+9686b36bbb6fede333f16b0679308a35aad7df6c** ()
+  > ssh 0531
+- **
+6a3ba1a9d7af115308b44e14846ea8ba2687b0f2** ()
+  > Update to version
+- **
+cc5483dfe2e54941b76b7c64aa8f5d0bba1e000b** ()
+  > chore: bump version to 1.3.8 and synchronize compiler dependency
+- **
+c1a830374431c5bd5a243e27c50d400519f632d6** ()
+  > chore: release v1.3.7
+- **
+cc765d418bae7e5a00f704dafbf8fb2d6fb09958** ()
+  > chore: release v1.3.6
+- **
+254209181fa739e65826801d26c85dc26f695cb2** ()
+  > chore: release v1.3.5
+- **** ()
+
 ## [1.3.5] - 2026-02-04
 
 ### 🐛 Bug Fixes
