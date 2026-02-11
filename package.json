@@ -1,70 +1,32 @@
 {
   "name": "@zenithbuild/core",
-  "version": "1.3.21",
-  "description": "Core library for the Zenith framework",
+  "version": "1.0.0",
+  "description": "Deterministic utility substrate for the Zenith framework",
   "license": "MIT",
   "type": "module",
-  "main": "./dist/index.js",
-  "bin": {
-    "zenith": "./dist/zenith.js"
+  "main": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./config": "./src/config.js",
+    "./path": "./src/path.js",
+    "./order": "./src/order.js",
+    "./hash": "./src/hash.js",
+    "./errors": "./src/errors.js",
+    "./version": "./src/version.js",
+    "./guards": "./src/guards.js"
   },
   "files": [
-    "bin",
-    "cli",
-    "core",
-    "router",
-    "runtime",
-    "dist",
-    "index.ts",
-    "tsconfig.json"
+    "src",
+    "CORE_CONTRACT.md"
   ],
-  "exports": {
-    ".": "./dist/index.js",
-    "./config": "./dist/core/config.js",
-    "./plugins": "./dist/index.js",
-    "./runtime": "./dist/index.js"
-  },
-  "keywords": [
-    "zenith",
-    "core",
-    "framework"
-  ],
-  "author": "Zenith Team",
-  "repository": {
-    "type": "git",
-    "url": "git+ssh://git@github.com/zenithbuild/zenith-core.git"
-  },
-  "scripts": {
-    "dev": "bun run build:cli && bin/zenith.ts dev",
-    "build": "tsc && bun run build:cli",
-    "start": "bun run build && bun run dev",
-    "build:cli": "bun build bin/zenith.ts bin/zen-dev.ts bin/zen-build.ts bin/zen-preview.ts --outdir dist --target bun --bundle --external '*' && for f in dist/*.js; do echo '#!/usr/bin/env bun' | cat - \"$f\" > \"$f.tmp\" && mv \"$f.tmp\" \"$f\" && chmod +x \"$f\"; done",
-    "format": "prettier --write \"**/*.ts\"",
-    "format:check": "prettier --check \"**/*.ts\"",
-    "release": "bun run scripts/release.ts",
-    "release:dry": "bun run scripts/release.ts --dry-run",
-    "release:patch": "bun run scripts/release.ts --bump=patch",
-    "release:minor": "bun run scripts/release.ts --bump=minor",
-    "release:major": "bun run scripts/release.ts --bump=major"
-  },
   "publishConfig": {
     "access": "public"
   },
-  "private": false,
+  "scripts": {
+    "test": "node --experimental-vm-modules node_modules/.bin/jest --config jest.config.js --forceExit --runInBand"
+  },
   "devDependencies": {
-    "@types/bun": "^1.3.6",
-    "@types/node": "^25.0.10",
-    "prettier": "^3.8.1"
-  },
-  "peerDependencies": {
-    "typescript": "^5.9.3"
-  },
-  "picocolors": "^1.1.1",
-  "dependencies": {
-    "@zenithbuild/bundler": "^1.3.18",
-    "@zenithbuild/compiler": "^1.3.18",
-    "@zenithbuild/runtime": "^0.2.1",
-    "@zenithbuild/router": "^1.3.18"
-  },
-  "types": "./dist/index.d.ts"
+    "@jest/globals": "^30.2.0",
+    "jest": "^30.2.0"
+  }
 }

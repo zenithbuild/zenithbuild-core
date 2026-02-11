@@ -58,3 +58,4 @@ dev.log
 dist/
 node_modules/
 .DS_Store
+bun.lock
