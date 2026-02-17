@@ -31,8 +31,8 @@ describe('Contract Guardrails', () => {
         for (const file of srcFiles) {
             const source = fs.readFileSync(path.join(srcDir, file), 'utf8');
 
-            // Skip guards.js which defines BROWSER_GLOBALS as strings
-            if (file === 'guards.js') continue;
+            // Skip files that intentionally contain browser-global tokens in template strings.
+            if (file === 'guards.js' || file === 'core-template.js') continue;
 
             // Check for browser global references (word boundary match)
             const windowRefs = source.match(/\bwindow\b/g) || [];
@@ -65,7 +65,8 @@ describe('Contract Guardrails', () => {
     test('all expected source files exist', () => {
         const expected = [
             'config.js', 'path.js', 'order.js', 'hash.js',
-            'errors.js', 'version.js', 'guards.js', 'index.js'
+            'errors.js', 'version.js', 'guards.js', 'schema.js',
+            'core-template.js', 'index.js'
         ];
         for (const file of expected) {
             expect(fs.existsSync(path.join(srcDir, file))).toBe(true);
