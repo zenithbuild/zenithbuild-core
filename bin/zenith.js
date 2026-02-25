@@ -12,6 +12,18 @@ const require = createRequire(import.meta.url);
 // Version mismatch check
 const corePkgPath = join(__dirname, '../package.json');
 const corePkg = JSON.parse(readFileSync(corePkgPath, 'utf-8'));
+const args = process.argv.slice(2);
+
+if (args.includes('--version') || args.includes('-v')) {
+    console.log(`zenith ${corePkg.version}`);
+    process.exit(0);
+}
+
+if (args.includes('--help') || args.includes('-h')) {
+    const { cli } = await import('@zenithbuild/cli');
+    await cli(args);
+    process.exit(0);
+}
 
 const expectedInternals = [
     '@zenithbuild/cli',
