@@ -19,7 +19,8 @@ const DEFAULTS = {
     typescriptDefault: true,
     outDir: 'dist',
     pagesDir: 'pages',
-    experimental: {}
+    experimental: {},
+    strictDomLints: false
 };
 
 /** Allowed keys and their expected types */
@@ -30,7 +31,8 @@ const SCHEMA = {
     typescriptDefault: 'boolean',
     outDir: 'string',
     pagesDir: 'string',
-    experimental: 'object'
+    experimental: 'object',
+    strictDomLints: 'boolean'
 };
 
 /**
