@@ -2,12 +2,21 @@
 
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const require = createRequire(import.meta.url);
+const cwdRequire = createRequire(join(process.cwd(), 'package.json'));
+
+function resolveInternal(specifier) {
+    try {
+        return cwdRequire.resolve(specifier);
+    } catch {
+        return require.resolve(specifier);
+    }
+}
 
 // Version mismatch check
 const corePkgPath = join(__dirname, '../package.json');
@@ -20,7 +29,7 @@ if (args.includes('--version') || args.includes('-v')) {
 }
 
 if (args.includes('--help') || args.includes('-h')) {
-    const { cli } = await import('@zenithbuild/cli');
+    const { cli } = await import(pathToFileURL(resolveInternal('@zenithbuild/cli')).href);
     await cli(args);
     process.exit(0);
 }
@@ -40,7 +49,7 @@ for (const internal of expectedInternals) {
     if (!expectedVersion) continue;
 
     try {
-        const entryPath = require.resolve(internal);
+        const entryPath = resolveInternal(internal);
 
         // Walk up to find the package's package.json
         let currentDir = dirname(entryPath);
@@ -77,4 +86,4 @@ if (hasMismatch) {
 }
 
 // Proceed to hand off execution to the underlying CLI implementation
-import('@zenithbuild/cli');
+import(pathToFileURL(resolveInternal('@zenithbuild/cli')).href);
