@@ -1,3 +1,9 @@
+> **Moved:** Zenith core development now lives in **zenithbuild/framework**.
+>
+> New home: https://github.com/zenithbuild/framework/tree/master/packages/core
+>
+> This repository is archived and kept read-only for history.
+
 # `@zenithbuild/core`
 
 This is the **sole public entrypoint** for the Zenith framework. 
